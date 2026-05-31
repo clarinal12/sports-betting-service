@@ -1,0 +1,119 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum CasinoGroupStatus {
+  ACTIVE
+  DISABLED
+}
+
+enum FixtureStatus {
+  SCHEDULED
+  LIVE
+  ENDED
+  POSTPONED
+  CANCELLED
+}
+
+/// A tenant (white-label operator). Players and content are scoped to a group.
+model CasinoGroup {
+  id              String            @id @default(cuid())
+  slug            String            @unique
+  name            String
+  defaultCurrency String            @default("USD")
+  timezone        String            @default("UTC")
+  status          CasinoGroupStatus @default(ACTIVE)
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  leagues CasinoGroupLeague[]
+
+  @@map("casino_groups")
+}
+
+/// Global sport catalog (shared across tenants; enablement is per-tenant).
+model Sport {
+  id     String  @id @default(cuid())
+  key    String  @unique
+  name   String
+  slug   String  @unique
+  active Boolean @default(true)
+
+  leagues League[]
+  teams   Team[]
+
+  @@map("sports")
+}
+
+/// Global league/competition catalog, scoped to a sport.
+model League {
+  id      String  @id @default(cuid())
+  sportId String
+  key     String  @unique
+  name    String
+  region  String?
+  active  Boolean @default(true)
+
+  sport     Sport               @relation(fields: [sportId], references: [id], onDelete: Cascade)
+  fixtures  Fixture[]
+  groups    CasinoGroupLeague[]
+
+  @@index([sportId])
+  @@map("leagues")
+}
+
+/// Participant in a sport (team or competitor).
+model Team {
+  id        String  @id @default(cuid())
+  sportId   String
+  key       String  @unique
+  name      String
+  shortName String?
+
+  sport         Sport     @relation(fields: [sportId], references: [id], onDelete: Cascade)
+  homeFixtures  Fixture[] @relation("HomeTeam")
+  awayFixtures  Fixture[] @relation("AwayTeam")
+
+  @@index([sportId])
+  @@map("teams")
+}
+
+/// A scheduled match between two teams in a league.
+model Fixture {
+  id          String        @id @default(cuid())
+  leagueId    String
+  homeTeamId  String
+  awayTeamId  String
+  startsAt    DateTime
+  status      FixtureStatus @default(SCHEDULED)
+  providerRef String        @unique
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  league   League @relation(fields: [leagueId], references: [id], onDelete: Cascade)
+  homeTeam Team   @relation("HomeTeam", fields: [homeTeamId], references: [id])
+  awayTeam Team   @relation("AwayTeam", fields: [awayTeamId], references: [id])
+
+  @@index([leagueId, startsAt])
+  @@index([status, startsAt])
+  @@map("fixtures")
+}
+
+/// Join table: which leagues a casino group offers to its players.
+model CasinoGroupLeague {
+  casinoGroupId String
+  leagueId      String
+  enabled       Boolean @default(true)
+
+  casinoGroup CasinoGroup @relation(fields: [casinoGroupId], references: [id], onDelete: Cascade)
+  league      League      @relation(fields: [leagueId], references: [id], onDelete: Cascade)
+
+  @@id([casinoGroupId, leagueId])
+  @@index([leagueId])
+  @@map("casino_group_leagues")
+}
