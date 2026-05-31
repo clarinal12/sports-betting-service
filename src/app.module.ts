@@ -11,6 +11,8 @@ import { IngestionModule } from './modules/ingestion/ingestion.module';
 import { SportsModule } from './modules/sports/sports.module';
 import { LeaguesModule } from './modules/leagues/leagues.module';
 import { FixturesModule } from './modules/fixtures/fixtures.module';
+import { EventsModule } from './modules/events/events.module';
+import { MarketsModule } from './modules/markets/markets.module';
 
 @Module({
   imports: [
@@ -34,6 +36,8 @@ import { FixturesModule } from './modules/fixtures/fixtures.module';
     SportsModule,
     LeaguesModule,
     FixturesModule,
+    EventsModule,
+    MarketsModule,
   ],
 })
 export class AppModule {}

@@ -20,6 +20,36 @@ enum FixtureStatus {
   CANCELLED
 }
 
+enum EventStatus {
+  SCHEDULED
+  LIVE
+  SUSPENDED
+  ENDED
+  CANCELLED
+}
+
+enum MarketType {
+  MATCH_RESULT
+  HANDICAP
+  TOTAL
+  DOUBLE_CHANCE
+  BOTH_TEAMS_SCORE
+}
+
+enum MarketStatus {
+  OPEN
+  SUSPENDED
+  SETTLED
+  VOID
+}
+
+enum SelectionStatus {
+  OPEN
+  SUSPENDED
+  SETTLED
+  VOID
+}
+
 /// A tenant (white-label operator). Players and content are scoped to a group.
 model CasinoGroup {
   id              String            @id @default(cuid())
@@ -98,6 +128,7 @@ model Fixture {
   league   League @relation(fields: [leagueId], references: [id], onDelete: Cascade)
   homeTeam Team   @relation("HomeTeam", fields: [homeTeamId], references: [id])
   awayTeam Team   @relation("AwayTeam", fields: [awayTeamId], references: [id])
+  event    Event?
 
   @@index([leagueId, startsAt])
   @@index([status, startsAt])
@@ -116,4 +147,76 @@ model CasinoGroupLeague {
   @@id([casinoGroupId, leagueId])
   @@index([leagueId])
   @@map("casino_group_leagues")
+}
+
+/// Live wrapper around a fixture: status, score, and clock while in play.
+/// 1:1 with Fixture; created/updated by ingestion.
+model Event {
+  id          String      @id @default(cuid())
+  fixtureId   String      @unique
+  providerRef String      @unique
+  status      EventStatus @default(SCHEDULED)
+  homeScore   Int?
+  awayScore   Int?
+  period      String?
+  clock       String?
+  startedAt   DateTime?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  fixture Fixture  @relation(fields: [fixtureId], references: [id], onDelete: Cascade)
+  markets Market[]
+
+  @@index([status])
+  @@map("events")
+}
+
+/// A bet type on an event (e.g. 1X2, Over/Under 2.5). `line` holds the
+/// handicap/total value when the market type uses one.
+model Market {
+  id          String       @id @default(cuid())
+  eventId     String
+  providerRef String       @unique
+  type        MarketType
+  status      MarketStatus @default(OPEN)
+  line        Decimal?     @db.Decimal(6, 2)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  event      Event       @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  selections Selection[]
+
+  @@index([eventId, type])
+  @@map("markets")
+}
+
+/// One outcome within a market, carrying the current decimal price.
+model Selection {
+  id          String          @id @default(cuid())
+  marketId    String
+  providerRef String          @unique
+  name        String
+  status      SelectionStatus @default(OPEN)
+  price       Decimal         @db.Decimal(10, 3)
+  updatedAt   DateTime        @updatedAt
+
+  market   Market         @relation(fields: [marketId], references: [id], onDelete: Cascade)
+  snapshots OddsSnapshot[]
+
+  @@index([marketId])
+  @@map("selections")
+}
+
+/// Append-only price history for audit and charts. Plain Postgres for now;
+/// convert to a TimescaleDB hypertable in a later phase.
+model OddsSnapshot {
+  id          String   @id @default(cuid())
+  selectionId String
+  price       Decimal  @db.Decimal(10, 3)
+  capturedAt  DateTime @default(now())
+
+  selection Selection @relation(fields: [selectionId], references: [id], onDelete: Cascade)
+
+  @@index([selectionId, capturedAt])
+  @@map("odds_snapshots")
 }

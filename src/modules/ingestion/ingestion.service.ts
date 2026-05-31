@@ -1,10 +1,21 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import { FixtureStatus } from '@prisma/client';
+import {
+  EventStatus,
+  FixtureStatus,
+  MarketStatus,
+  MarketType,
+  Prisma,
+  SelectionStatus,
+} from '@prisma/client';
 import { PrismaService } from '../../shared/database/prisma.service';
 import {
   FIXTURE_PROVIDER,
   type FixtureProviderPort,
+  type NormalizedEventStatus,
   type NormalizedFixtureStatus,
+  type NormalizedMarketStatus,
+  type NormalizedMarketType,
+  type NormalizedSelectionStatus,
 } from '../providers/provider.types';
 
 export interface IngestionSummary {
@@ -12,6 +23,10 @@ export interface IngestionSummary {
   leagues: number;
   teams: number;
   fixtures: number;
+  events: number;
+  markets: number;
+  selections: number;
+  oddsSnapshots: number;
 }
 
 const FIXTURE_STATUS_MAP: Record<NormalizedFixtureStatus, FixtureStatus> = {
@@ -21,6 +36,37 @@ const FIXTURE_STATUS_MAP: Record<NormalizedFixtureStatus, FixtureStatus> = {
   POSTPONED: FixtureStatus.POSTPONED,
   CANCELLED: FixtureStatus.CANCELLED,
 };
+
+const EVENT_STATUS_MAP: Record<NormalizedEventStatus, EventStatus> = {
+  SCHEDULED: EventStatus.SCHEDULED,
+  LIVE: EventStatus.LIVE,
+  SUSPENDED: EventStatus.SUSPENDED,
+  ENDED: EventStatus.ENDED,
+  CANCELLED: EventStatus.CANCELLED,
+};
+
+const MARKET_TYPE_MAP: Record<NormalizedMarketType, MarketType> = {
+  MATCH_RESULT: MarketType.MATCH_RESULT,
+  HANDICAP: MarketType.HANDICAP,
+  TOTAL: MarketType.TOTAL,
+  DOUBLE_CHANCE: MarketType.DOUBLE_CHANCE,
+  BOTH_TEAMS_SCORE: MarketType.BOTH_TEAMS_SCORE,
+};
+
+const MARKET_STATUS_MAP: Record<NormalizedMarketStatus, MarketStatus> = {
+  OPEN: MarketStatus.OPEN,
+  SUSPENDED: MarketStatus.SUSPENDED,
+  SETTLED: MarketStatus.SETTLED,
+  VOID: MarketStatus.VOID,
+};
+
+const SELECTION_STATUS_MAP: Record<NormalizedSelectionStatus, SelectionStatus> =
+  {
+    OPEN: SelectionStatus.OPEN,
+    SUSPENDED: SelectionStatus.SUSPENDED,
+    SETTLED: SelectionStatus.SETTLED,
+    VOID: SelectionStatus.VOID,
+  };
 
 @Injectable()
 export class IngestionService {
@@ -32,8 +78,9 @@ export class IngestionService {
   ) {}
 
   /**
-   * Pulls the provider snapshot and upserts catalog + fixtures by their unique
-   * keys, so repeated runs are idempotent.
+   * Pulls the provider snapshot and upserts catalog, fixtures, and live data
+   * (events, markets, selections) by their unique keys, so repeated runs are
+   * idempotent. Records an OddsSnapshot whenever a selection price changes.
    */
   async ingestFixtures(): Promise<IngestionSummary> {
     const snapshot = await this.provider.fetchSnapshot();
@@ -123,16 +170,162 @@ export class IngestionService {
       fixtureCount += 1;
     }
 
+    const { events, markets, selections, oddsSnapshots } =
+      await this.ingestLiveData(snapshot);
+
     const summary: IngestionSummary = {
       sports: snapshot.sports.length,
       leagues: snapshot.leagues.length,
       teams: snapshot.teams.length,
       fixtures: fixtureCount,
+      events,
+      markets,
+      selections,
+      oddsSnapshots,
     };
     this.logger.log(
-      `Ingested sports=${summary.sports} leagues=${summary.leagues} teams=${summary.teams} fixtures=${summary.fixtures}`,
+      `Ingested sports=${summary.sports} leagues=${summary.leagues} ` +
+        `teams=${summary.teams} fixtures=${summary.fixtures} ` +
+        `events=${summary.events} markets=${summary.markets} ` +
+        `selections=${summary.selections} oddsSnapshots=${summary.oddsSnapshots}`,
     );
     return summary;
+  }
+
+  private async ingestLiveData(
+    snapshot: Awaited<ReturnType<FixtureProviderPort['fetchSnapshot']>>,
+  ): Promise<{
+    events: number;
+    markets: number;
+    selections: number;
+    oddsSnapshots: number;
+  }> {
+    const fixtureIdByRef = await this.keyToId(
+      this.prisma.fixture
+        .findMany({ select: { id: true, providerRef: true } })
+        .then((rows) =>
+          rows.map((row) => ({ id: row.id, key: row.providerRef })),
+        ),
+    );
+
+    let eventCount = 0;
+    for (const event of snapshot.events) {
+      const fixtureId = fixtureIdByRef.get(event.fixtureProviderRef);
+      if (!fixtureId) {
+        this.logger.warn(
+          `Skipping event ${event.providerRef}: unknown fixture ${event.fixtureProviderRef}`,
+        );
+        continue;
+      }
+      const data = {
+        fixtureId,
+        status: EVENT_STATUS_MAP[event.status],
+        homeScore: event.homeScore ?? null,
+        awayScore: event.awayScore ?? null,
+        period: event.period ?? null,
+        clock: event.clock ?? null,
+      };
+      await this.prisma.event.upsert({
+        where: { providerRef: event.providerRef },
+        create: { providerRef: event.providerRef, ...data },
+        update: data,
+      });
+      eventCount += 1;
+    }
+
+    const eventIdByRef = await this.keyToId(
+      this.prisma.event
+        .findMany({ select: { id: true, providerRef: true } })
+        .then((rows) =>
+          rows.map((row) => ({ id: row.id, key: row.providerRef })),
+        ),
+    );
+
+    let marketCount = 0;
+    for (const market of snapshot.markets) {
+      const eventId = eventIdByRef.get(market.eventProviderRef);
+      if (!eventId) {
+        this.logger.warn(
+          `Skipping market ${market.providerRef}: unknown event ${market.eventProviderRef}`,
+        );
+        continue;
+      }
+      const data = {
+        eventId,
+        type: MARKET_TYPE_MAP[market.type],
+        status: MARKET_STATUS_MAP[market.status],
+        line: market.line ? new Prisma.Decimal(market.line) : null,
+      };
+      await this.prisma.market.upsert({
+        where: { providerRef: market.providerRef },
+        create: { providerRef: market.providerRef, ...data },
+        update: data,
+      });
+      marketCount += 1;
+    }
+
+    const marketIdByRef = await this.keyToId(
+      this.prisma.market
+        .findMany({ select: { id: true, providerRef: true } })
+        .then((rows) =>
+          rows.map((row) => ({ id: row.id, key: row.providerRef })),
+        ),
+    );
+
+    const existingSelections = await this.prisma.selection.findMany({
+      select: { providerRef: true, price: true },
+    });
+    const priceByRef = new Map(
+      existingSelections.map((s) => [s.providerRef, s.price]),
+    );
+
+    let selectionCount = 0;
+    let snapshotCount = 0;
+    for (const selection of snapshot.selections) {
+      const marketId = marketIdByRef.get(selection.marketProviderRef);
+      if (!marketId) {
+        this.logger.warn(
+          `Skipping selection ${selection.providerRef}: unknown market ${selection.marketProviderRef}`,
+        );
+        continue;
+      }
+      const price = new Prisma.Decimal(selection.price);
+      const previous = priceByRef.get(selection.providerRef);
+      const priceChanged = !previous || !previous.equals(price);
+
+      const saved = await this.prisma.selection.upsert({
+        where: { providerRef: selection.providerRef },
+        create: {
+          providerRef: selection.providerRef,
+          marketId,
+          name: selection.name,
+          status: SELECTION_STATUS_MAP[selection.status],
+          price,
+        },
+        update: {
+          marketId,
+          name: selection.name,
+          status: SELECTION_STATUS_MAP[selection.status],
+          price,
+        },
+        select: { id: true },
+      });
+      selectionCount += 1;
+
+      if (priceChanged) {
+        await this.prisma.oddsSnapshot.create({
+          data: { selectionId: saved.id, price },
+        });
+        snapshotCount += 1;
+      }
+    }
+
+    return {
+      events: eventCount,
+      markets: marketCount,
+      selections: selectionCount,
+      oddsSnapshots: snapshotCount,
+    };
   }
 
   private async keyToId(

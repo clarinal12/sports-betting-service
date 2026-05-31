@@ -23,6 +23,17 @@ Locked choices for the first implementation phases. Update this file when decisi
 | Ingestion | **Manual (`ingest:fixtures`), idempotent upserts by key/providerRef** | Scheduled ingestion deferred |
 | Tenant scoping | **Enforced in the data layer** | Services filter by `casinoGroupId`, never trust query input |
 
+## Phase 2 decisions
+
+| Topic | Decision | Notes |
+|-------|----------|-------|
+| Live model | **`Event` 1:1 with `Fixture`; `Market` → `Selection`** | Event adds status/score/clock |
+| Odds history | **Current price on `Selection` + `OddsSnapshot` table in plain Postgres** | TimescaleDB hypertable deferred; snapshot written only on price change |
+| Price type | **Prisma `Decimal` (numeric), `decimal.js`; serialized as strings in JSON** | Never a JS `number` (FR-M6) |
+| Market types (MVP) | **MATCH_RESULT, TOTAL; + BOTH_TEAMS_SCORE (soccer), HANDICAP (basketball)** | Provider maps foreign codes → `MarketType` enum |
+| Per-group market rules (FR-M4) | **Deferred** | All market types exposed to every group for now |
+| Event/market scoping | **Via fixture → league → enabled group** | Cross-tenant access returns 404 |
+
 ## Environment
 
 Copy `.env.example` to `.env` and start infrastructure:

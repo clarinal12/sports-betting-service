@@ -1,0 +1,99 @@
+# Sports Betting Service — API playground
+#
+# Run these with the "REST Client" extension (VS Code / Cursor) or JetBrains'
+# built-in HTTP client. Click "Send Request" above each request.
+#
+# Prereqs:
+#   npm run docker:up && npm run prisma:migrate && npm run db:seed && npm run start:dev
+#
+# Seeded casino groups: `acme` (all leagues) and `betzone` (soccer only).
+
+@baseUrl = http://localhost:3001
+@api = {{baseUrl}}/api/v1
+@group = acme
+
+### ────────────────────────────────────────────────────────────────────────
+### Health & metadata (no tenant header required)
+### ────────────────────────────────────────────────────────────────────────
+
+### Liveness
+GET {{baseUrl}}/health
+
+### Readiness (Postgres + Redis)
+GET {{baseUrl}}/ready
+
+### Service metadata
+GET {{api}}
+
+### ────────────────────────────────────────────────────────────────────────
+### Catalog (Phase 1) — tenant-scoped
+### ────────────────────────────────────────────────────────────────────────
+
+### Sports offered to the group
+# @name sports
+GET {{api}}/sports
+X-Casino-Group: {{group}}
+
+### Leagues for the group
+# @name leagues
+GET {{api}}/leagues
+X-Casino-Group: {{group}}
+
+### Leagues filtered by the first sport (chained from the sports response)
+GET {{api}}/leagues?sportId={{sports.response.body.$[0].id}}
+X-Casino-Group: {{group}}
+
+### ────────────────────────────────────────────────────────────────────────
+### Fixtures / schedule (Phase 1) — tenant-scoped, paginated
+### ────────────────────────────────────────────────────────────────────────
+
+### First page of fixtures
+GET {{api}}/fixtures?page=1&pageSize=5
+X-Casino-Group: {{group}}
+
+### Fixtures filtered by status
+GET {{api}}/fixtures?status=SCHEDULED&pageSize=10
+X-Casino-Group: {{group}}
+
+### ────────────────────────────────────────────────────────────────────────
+### Events, markets & odds (Phase 2) — tenant-scoped
+### ────────────────────────────────────────────────────────────────────────
+
+### Live events for the group
+# @name liveEvents
+GET {{api}}/events/live
+X-Casino-Group: {{group}}
+
+### Event detail (first live event, chained)
+GET {{api}}/events/{{liveEvents.response.body.$[0].id}}
+X-Casino-Group: {{group}}
+
+### Markets + selections with odds (first live event, chained)
+# @name markets
+GET {{api}}/events/{{liveEvents.response.body.$[0].id}}/markets
+X-Casino-Group: {{group}}
+
+### Single market by id (chained from the markets response)
+GET {{api}}/markets/{{markets.response.body.$[0].id}}
+X-Casino-Group: {{group}}
+
+### ────────────────────────────────────────────────────────────────────────
+### Tenant scoping & guardrails
+### ────────────────────────────────────────────────────────────────────────
+
+### Missing tenant header -> 400 Bad Request
+GET {{api}}/events/live
+
+### Unknown / inactive group -> 403 Forbidden
+GET {{api}}/events/live
+X-Casino-Group: does-not-exist
+
+### betzone sees only soccer (no NBA events) — compare with acme above
+GET {{api}}/events/live
+X-Casino-Group: betzone
+
+### Cross-tenant block: betzone requesting an acme-only (NBA) event -> 404
+### 1) As acme, list live events and copy an NBA event id (MIA/LAL/GSW/BOS).
+### 2) Paste it below and run as betzone.
+GET {{api}}/events/PASTE_NBA_EVENT_ID_HERE
+X-Casino-Group: betzone

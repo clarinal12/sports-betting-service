@@ -74,6 +74,19 @@ inactive group → `403`.
 | `GET /api/v1/sports` | Sports offered to the group |
 | `GET /api/v1/leagues?sportId=` | Leagues enabled for the group |
 | `GET /api/v1/fixtures?from=&to=&leagueId=&status=&page=&pageSize=` | Schedule (paginated) |
+| `GET /api/v1/events/live` | Live events (status, score, clock) |
+| `GET /api/v1/events/:id` | Event detail + live state |
+| `GET /api/v1/events/:id/markets` | Markets + selections with odds |
+| `GET /api/v1/markets/:id` | Single market |
+
+Decimal odds are returned as **strings** (e.g. `"1.95"`) to preserve precision.
+
+### API playground
+
+[`requests.http`](requests.http) contains every endpoint (plus the
+`400`/`403`/`404` guardrail checks) ready to run with the **REST Client**
+extension (VS Code / Cursor) or a JetBrains IDE — click "Send Request" above any
+request. Event/market IDs are chained automatically, so no copy-pasting IDs.
 
 ```bash
 curl -H "X-Casino-Group: acme" http://localhost:3001/api/v1/sports
