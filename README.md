@@ -86,6 +86,41 @@ without a token:
 npm run dev:token -- --merchant acme-merchant --user player-7 --username bob
 ```
 
+## Real-time (Phase 3b)
+
+WebSocket namespace **`/realtime`** (Socket.IO). Authenticate with the **session
+token** from `/launch` in the handshake (`auth: { token: sessionToken }`).
+
+After connect, emit **`subscribe`** with event and/or market ids (tenant-scoped).
+Server pushes:
+
+| Event | When |
+|-------|------|
+| `event.update` | Score, clock, or status changes after ingestion |
+| `selection.odds` | Selection price changes |
+
+Rooms are namespaced per group: `group:{casinoGroupId}:event:{id}` and
+`group:{casinoGroupId}:market:{id}`. Updates fan out across app instances via
+Redis pub/sub. Socket.IO heartbeat handles reconnects; re-subscribe after
+reconnect.
+
+Subscribe rate limit: `REALTIME_SUBSCRIBE_MAX_PER_MINUTE` per casino group
+(default `60`).
+
+```javascript
+import { io } from 'socket.io-client';
+const socket = io('http://localhost:3001/realtime', {
+  auth: { token: sessionToken },
+});
+socket.on('connected', () => {
+  socket.emit('subscribe', { eventIds: ['<eventId>'], marketIds: ['<marketId>'] });
+});
+socket.on('event.update', (payload) => console.log(payload));
+socket.on('selection.odds', (payload) => console.log(payload));
+```
+
+Run `npm run ingest:fixtures` (or wait for scheduled ingestion) to trigger pushes.
+
 ## Player API (Phase 1)
 
 All player endpoints are tenant-scoped. Authenticate with a `Bearer` session

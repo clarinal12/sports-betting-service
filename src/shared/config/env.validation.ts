@@ -42,6 +42,15 @@ export const envSchema = z.object({
   OPERATOR_JWT_CLOCK_SKEW: z.coerce.number().int().min(0).max(300).default(5),
   /// Base URL of the external user/wallet service (used from Phase 4).
   USER_SERVICE_BASE_URL: z.string().url().optional(),
+
+  // --- Real-time (Phase 3b) ---
+  /// Max subscribe/unsubscribe operations per casino group per minute (FR-C3).
+  REALTIME_SUBSCRIBE_MAX_PER_MINUTE: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(1000)
+    .default(60),
 });
 
 export type EnvConfig = z.infer<typeof envSchema>;

@@ -16,6 +16,7 @@ import { LeaguesModule } from './modules/leagues/leagues.module';
 import { FixturesModule } from './modules/fixtures/fixtures.module';
 import { EventsModule } from './modules/events/events.module';
 import { MarketsModule } from './modules/markets/markets.module';
+import { RealtimeModule } from './modules/realtime/realtime.module';
 
 @Module({
   imports: [
@@ -44,6 +45,7 @@ import { MarketsModule } from './modules/markets/markets.module';
     FixturesModule,
     EventsModule,
     MarketsModule,
+    RealtimeModule,
   ],
 })
 export class AppModule {}

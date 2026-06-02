@@ -6,10 +6,16 @@ import { Logger } from 'nestjs-pino';
 import { AppModule } from './app.module';
 import { AllExceptionsFilter } from './shared/filters/all-exceptions.filter';
 import type { EnvConfig } from './shared/config/env.validation';
+import { RedisService } from './shared/cache/redis.service';
+import { RedisIoAdapter } from './shared/websocket/redis-io.adapter';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, { bufferLogs: true });
   app.useLogger(app.get(Logger));
+
+  const redis = app.get(RedisService);
+  await redis.ping();
+  app.useWebSocketAdapter(new RedisIoAdapter(app, redis.getClient()));
 
   app.setGlobalPrefix('api/v1', {
     exclude: ['health', 'ready'],

@@ -8,6 +8,7 @@ import {
   SelectionStatus,
 } from '@prisma/client';
 import { PrismaService } from '../../shared/database/prisma.service';
+import { RealtimePubSubService } from '../realtime/realtime-pubsub.service';
 import {
   FIXTURE_PROVIDER,
   type FixtureProviderPort,
@@ -75,6 +76,7 @@ export class IngestionService {
   constructor(
     private readonly prisma: PrismaService,
     @Inject(FIXTURE_PROVIDER) private readonly provider: FixtureProviderPort,
+    private readonly realtime: RealtimePubSubService,
   ) {}
 
   /**
@@ -225,10 +227,25 @@ export class IngestionService {
         period: event.period ?? null,
         clock: event.clock ?? null,
       };
-      await this.prisma.event.upsert({
+      const saved = await this.prisma.event.upsert({
         where: { providerRef: event.providerRef },
         create: { providerRef: event.providerRef, ...data },
         update: data,
+        select: {
+          id: true,
+          status: true,
+          homeScore: true,
+          awayScore: true,
+          period: true,
+          clock: true,
+        },
+      });
+      await this.realtime.publishEventUpdate(saved.id, {
+        status: saved.status,
+        homeScore: saved.homeScore,
+        awayScore: saved.awayScore,
+        period: saved.period,
+        clock: saved.clock,
       });
       eventCount += 1;
     }
@@ -316,6 +333,12 @@ export class IngestionService {
         await this.prisma.oddsSnapshot.create({
           data: { selectionId: saved.id, price },
         });
+        await this.realtime.publishSelectionOdds(
+          marketId,
+          saved.id,
+          price,
+          SELECTION_STATUS_MAP[selection.status],
+        );
         snapshotCount += 1;
       }
     }
