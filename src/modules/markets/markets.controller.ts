@@ -1,24 +1,13 @@
-import { Controller, Get, Param, UseGuards } from '@nestjs/common';
-import {
-  ApiHeader,
-  ApiOkResponse,
-  ApiOperation,
-  ApiTags,
-} from '@nestjs/swagger';
-import { CASINO_GROUP_HEADER } from '../casino-groups/casino-group.types';
+import { Controller, Get, Param } from '@nestjs/common';
+import { ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CasinoGroup } from '../casino-groups/casino-group.decorator';
-import { CasinoGroupGuard } from '../casino-groups/casino-group.guard';
 import { type CasinoGroupContext } from '../casino-groups/casino-group.types';
+import { PlayerAuth } from '../auth/player-auth.decorator';
 import { MarketResponseDto } from './dto/market-response.dto';
 import { MarketsService } from './markets.service';
 
 @ApiTags('player')
-@ApiHeader({
-  name: CASINO_GROUP_HEADER,
-  required: true,
-  description: 'Casino group slug',
-})
-@UseGuards(CasinoGroupGuard)
+@PlayerAuth()
 @Controller('markets')
 export class MarketsController {
   constructor(private readonly marketsService: MarketsService) {}

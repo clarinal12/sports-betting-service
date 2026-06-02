@@ -3,6 +3,17 @@ import { Logger } from '@nestjs/common';
 import { AppModule } from '../src/app.module';
 import { IngestionService } from '../src/modules/ingestion/ingestion.service';
 import { PrismaService } from '../src/shared/database/prisma.service';
+import { CryptoService } from '../src/shared/crypto/crypto.service';
+
+// Demo launch-token secrets (dev only). The dev:token script reads these to
+// sign operator JWTs.
+const DEMO_MERCHANTS = {
+  acme: { merchantId: 'acme-merchant', sportsSecret: 'acme-dev-secret-please-change' },
+  betzone: {
+    merchantId: 'betzone-merchant',
+    sportsSecret: 'betzone-dev-secret-please-change',
+  },
+};
 
 /**
  * Demo data for local development:
@@ -19,18 +30,39 @@ async function seed(): Promise<void> {
   try {
     const prisma = app.get(PrismaService);
     const ingestion = app.get(IngestionService);
+    const crypto = app.get(CryptoService);
 
     await ingestion.ingestFixtures();
 
     const acme = await prisma.casinoGroup.upsert({
       where: { slug: 'acme' },
-      create: { slug: 'acme', name: 'Acme Casino', defaultCurrency: 'USD' },
-      update: { name: 'Acme Casino' },
+      create: {
+        slug: 'acme',
+        name: 'Acme Casino',
+        defaultCurrency: 'USD',
+        merchantId: DEMO_MERCHANTS.acme.merchantId,
+        sportsSecret: crypto.encrypt(DEMO_MERCHANTS.acme.sportsSecret),
+      },
+      update: {
+        name: 'Acme Casino',
+        merchantId: DEMO_MERCHANTS.acme.merchantId,
+        sportsSecret: crypto.encrypt(DEMO_MERCHANTS.acme.sportsSecret),
+      },
     });
     const betzone = await prisma.casinoGroup.upsert({
       where: { slug: 'betzone' },
-      create: { slug: 'betzone', name: 'BetZone', defaultCurrency: 'EUR' },
-      update: { name: 'BetZone' },
+      create: {
+        slug: 'betzone',
+        name: 'BetZone',
+        defaultCurrency: 'EUR',
+        merchantId: DEMO_MERCHANTS.betzone.merchantId,
+        sportsSecret: crypto.encrypt(DEMO_MERCHANTS.betzone.sportsSecret),
+      },
+      update: {
+        name: 'BetZone',
+        merchantId: DEMO_MERCHANTS.betzone.merchantId,
+        sportsSecret: crypto.encrypt(DEMO_MERCHANTS.betzone.sportsSecret),
+      },
     });
 
     const leagues = await prisma.league.findMany({
@@ -81,7 +113,9 @@ async function seed(): Promise<void> {
       });
     }
 
-    logger.log('Seed completed: groups=acme,betzone');
+    logger.log(
+      'Seed completed: groups=acme,betzone (merchants: acme-merchant, betzone-merchant)',
+    );
   } catch (error) {
     new Logger('Seed').error('Seed failed', error as Error);
     process.exitCode = 1;

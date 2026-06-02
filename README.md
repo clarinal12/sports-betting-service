@@ -63,11 +63,33 @@ npm run build && npm run start:prod
 | `GET /api/v1` | Service metadata |
 | `GET /api/docs` | Swagger UI |
 
+## Authentication (Phase 3a)
+
+Players enter via an operator **launch token** (JWT signed HS256 with that
+merchant's `sportsSecret`). The service verifies it and issues a short-lived
+**session token** used on all subsequent calls.
+
+```
+GET /api/v1/launch?token=<operatorJWT>   →  { sessionToken, expiresIn, user }
+# then:
+Authorization: Bearer <sessionToken>     on every player request
+```
+
+The verified token's `merchantId` resolves the tenant (`currency` comes from the
+group config). Missing/invalid session → `401`; unknown/inactive group → `403`.
+
+For local development you can mint a launch token and (when
+`AUTH_ALLOW_HEADER_FALLBACK=true`) still use the `X-Casino-Group` slug header
+without a token:
+
+```bash
+npm run dev:token -- --merchant acme-merchant --user player-7 --username bob
+```
+
 ## Player API (Phase 1)
 
-All player endpoints are tenant-scoped and require the `X-Casino-Group` header
-(value = casino group slug, e.g. `acme`). Missing header → `400`, unknown or
-inactive group → `403`.
+All player endpoints are tenant-scoped. Authenticate with a `Bearer` session
+token, or (dev only) the `X-Casino-Group` slug header.
 
 | Endpoint | Purpose |
 |----------|---------|

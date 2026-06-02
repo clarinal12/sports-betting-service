@@ -1,10 +1,10 @@
 import { Module } from '@nestjs/common';
-import { CasinoGroupsModule } from '../casino-groups/casino-groups.module';
+import { AuthModule } from '../auth/auth.module';
 import { SportsController } from './sports.controller';
 import { SportsService } from './sports.service';
 
 @Module({
-  imports: [CasinoGroupsModule],
+  imports: [AuthModule],
   controllers: [SportsController],
   providers: [SportsService],
 })

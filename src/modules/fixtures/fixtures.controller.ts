@@ -1,28 +1,15 @@
-import { Controller, Get, Query, UseGuards } from '@nestjs/common';
-import {
-  ApiHeader,
-  ApiOkResponse,
-  ApiOperation,
-  ApiTags,
-} from '@nestjs/swagger';
+import { Controller, Get, Query } from '@nestjs/common';
+import { ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CasinoGroup } from '../casino-groups/casino-group.decorator';
-import { CasinoGroupGuard } from '../casino-groups/casino-group.guard';
-import {
-  CASINO_GROUP_HEADER,
-  type CasinoGroupContext,
-} from '../casino-groups/casino-group.types';
+import { type CasinoGroupContext } from '../casino-groups/casino-group.types';
+import { PlayerAuth } from '../auth/player-auth.decorator';
 import { PaginatedDto } from '../../shared/dto/pagination';
 import { FixtureResponseDto } from './dto/fixture-response.dto';
 import { ListFixturesQueryDto } from './dto/list-fixtures-query.dto';
 import { FixturesService } from './fixtures.service';
 
 @ApiTags('player')
-@ApiHeader({
-  name: CASINO_GROUP_HEADER,
-  required: true,
-  description: 'Casino group slug',
-})
-@UseGuards(CasinoGroupGuard)
+@PlayerAuth()
 @Controller('fixtures')
 export class FixturesController {
   constructor(private readonly fixturesService: FixturesService) {}

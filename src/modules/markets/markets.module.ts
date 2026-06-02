@@ -1,10 +1,10 @@
 import { Module } from '@nestjs/common';
-import { CasinoGroupsModule } from '../casino-groups/casino-groups.module';
+import { AuthModule } from '../auth/auth.module';
 import { MarketsController } from './markets.controller';
 import { MarketsService } from './markets.service';
 
 @Module({
-  imports: [CasinoGroupsModule],
+  imports: [AuthModule],
   controllers: [MarketsController],
   providers: [MarketsService],
   exports: [MarketsService],

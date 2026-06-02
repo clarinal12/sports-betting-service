@@ -88,8 +88,8 @@ describe('Player API tenant scoping (e2e)', () => {
     await app.close();
   });
 
-  it('returns 400 without the casino group header', () => {
-    return request(app.getHttpServer()).get('/api/v1/sports').expect(400);
+  it('returns 401 without a token or casino group header', () => {
+    return request(app.getHttpServer()).get('/api/v1/sports').expect(401);
   });
 
   it('returns 403 for an unknown casino group', () => {

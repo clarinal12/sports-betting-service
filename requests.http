@@ -11,6 +11,20 @@
 @baseUrl = http://localhost:3001
 @api = {{baseUrl}}/api/v1
 @group = acme
+# Paste an operator launch token from: npm run dev:token -- --merchant acme-merchant
+@operatorToken = PASTE_OPERATOR_TOKEN_HERE
+
+### ────────────────────────────────────────────────────────────────────────
+### Auth (Phase 3a): launch → session token
+### ────────────────────────────────────────────────────────────────────────
+
+### Exchange an operator launch token for a player session token
+# @name launch
+GET {{api}}/launch?token={{operatorToken}}
+
+### Authenticated request using the session token (chained from launch)
+GET {{api}}/sports
+Authorization: Bearer {{launch.response.body.sessionToken}}
 
 ### ────────────────────────────────────────────────────────────────────────
 ### Health & metadata (no tenant header required)

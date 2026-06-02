@@ -2,10 +2,13 @@ import { Module } from '@nestjs/common';
 import { LoggerModule } from 'nestjs-pino';
 import { AppConfigModule } from './shared/config/config.module';
 import { CacheModule } from './shared/cache/cache.module';
+import { CryptoModule } from './shared/crypto/crypto.module';
 import { DatabaseModule } from './shared/database/database.module';
 import { HealthModule } from './modules/health/health.module';
 import { RootModule } from './modules/root/root.module';
 import { CasinoGroupsModule } from './modules/casino-groups/casino-groups.module';
+import { AuthModule } from './modules/auth/auth.module';
+import { WalletModule } from './modules/wallet/wallet.module';
 import { ProvidersModule } from './modules/providers/providers.module';
 import { IngestionModule } from './modules/ingestion/ingestion.module';
 import { SportsModule } from './modules/sports/sports.module';
@@ -28,9 +31,12 @@ import { MarketsModule } from './modules/markets/markets.module';
     }),
     DatabaseModule,
     CacheModule,
+    CryptoModule,
     HealthModule,
     RootModule,
     CasinoGroupsModule,
+    AuthModule,
+    WalletModule,
     ProvidersModule,
     IngestionModule,
     SportsModule,

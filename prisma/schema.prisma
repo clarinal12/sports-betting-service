@@ -58,6 +58,11 @@ model CasinoGroup {
   defaultCurrency String            @default("USD")
   timezone        String            @default("UTC")
   status          CasinoGroupStatus @default(ACTIVE)
+  /// Operator id carried in the launch JWT (`merchantId` claim).
+  merchantId      String?           @unique
+  /// Per-merchant HMAC secret for verifying launch tokens, encrypted at rest.
+  /// Never returned by any API.
+  sportsSecret    String?
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @updatedAt
 

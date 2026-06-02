@@ -1,11 +1,11 @@
 import { Module } from '@nestjs/common';
-import { CasinoGroupsModule } from '../casino-groups/casino-groups.module';
+import { AuthModule } from '../auth/auth.module';
 import { MarketsModule } from '../markets/markets.module';
 import { EventsController } from './events.controller';
 import { EventsService } from './events.service';
 
 @Module({
-  imports: [CasinoGroupsModule, MarketsModule],
+  imports: [AuthModule, MarketsModule],
   controllers: [EventsController],
   providers: [EventsService],
 })
