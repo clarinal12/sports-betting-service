@@ -40,9 +40,62 @@ npm run prisma:migrate
 npm run db:seed
 ```
 
-`db:seed` loads catalog + fixtures (via the mock provider) and two demo casino
-groups: `acme` (all leagues) and `betzone` (soccer only). To refresh just the
-schedule later, run `npm run ingest:fixtures`.
+`db:seed` loads catalog + schedule from **The Odds API** when
+`FIXTURE_PROVIDER=odds-api` in `.env`, then creates demo casino groups. To wipe and
+reload from scratch:
+
+```bash
+npm run db:reset
+```
+
+To refresh odds/schedule only (keeps groups): `npm run ingest:fixtures`.
+
+To refresh **live scores and in-play odds** only (cheap; scoped to LIVE fixtures
+already in the DB): `npm run ingest:live`. Run `ingest:fixtures` first so the
+catalog exists.
+
+**Automatic ingest** (while the API is running):
+
+| Kind | Enable | Cadence (recommended) |
+|------|--------|------------------------|
+| Live | `INGEST_LIVE_ENABLED=true` | `INGEST_LIVE_INTERVAL_SECONDS=60` |
+| Catalog | `INGEST_CATALOG_ENABLED=true` | `INGEST_CATALOG_CRON=0 */6 * * *` (every 6h) |
+
+Both schedulers use a Redis lock (no double-poll across instances) and pause when
+The Odds API returns 401 or `x-requests-remaining` drops below
+`INGEST_ODDS_API_REMAINING_MIN` (default `20`). Run `ingest:fixtures` once after
+deploy if you need data before the first cron fire.
+
+### Fixture provider (Phase 3c)
+
+Set `FIXTURE_PROVIDER=odds-api` and `ODDS_API_KEY` in `.env` to pull live data from
+[The Odds API](https://the-odds-api.com). Markets: `h2h`, `spreads`, `totals`
+→ internal `MATCH_RESULT`, `HANDICAP`, `TOTAL`. Decimal odds preserved as strings.
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `FIXTURE_PROVIDER` | `mock` | `mock` or `odds-api` |
+| `ODDS_API_KEY` | — | Required when provider is `odds-api` |
+| `ODDS_API_SPORT_KEYS` | `basketball,baseball,americanfootball,soccer` | Group aliases or `all` |
+| `ODDS_API_REGIONS` | `all` | `all` → us, us2, uk, eu, au; or comma-separated subset |
+| `ODDS_API_MARKETS` | `h2h,spreads,totals` | Upstream market keys |
+| `INGEST_LIVE_ENABLED` | `false` | In-process live ingest scheduler |
+| `INGEST_LIVE_INTERVAL_SECONDS` | `60` | Tick interval when live scheduler enabled |
+| `INGEST_CATALOG_ENABLED` | `false` | In-process full catalog ingest scheduler |
+| `INGEST_CATALOG_CRON` | `0 */6 * * *` | Cron for catalog ingest (5-field) |
+| `INGEST_LIVE_PRESTART_MINUTES` | `15` | Include soon-to-start fixtures on live ticks |
+| `INGEST_ODDS_API_REMAINING_MIN` | `20` | Pause scheduler when quota below this |
+| `INGEST_ODDS_API_PAUSE_MINUTES` | `30` | Pause duration after low quota or 401 |
+
+`all` ingests every **active game sport** from `/sports`. Tenant offerings: **acme**
+gets basketball, baseball, american football, and soccer (all leagues, all regions);
+**betzone** gets basketball only.
+
+After switching from mock, run `npm run db:reset` once to drop stale data and
+reload from The Odds API.
+
+E2E tests force `FIXTURE_PROVIDER=mock`. Response quota is logged via
+`x-requests-remaining` / `x-requests-used` headers after each API call.
 
 ## Compile and run the project
 
@@ -119,7 +172,10 @@ socket.on('event.update', (payload) => console.log(payload));
 socket.on('selection.odds', (payload) => console.log(payload));
 ```
 
-Run `npm run ingest:fixtures` (or wait for scheduled ingestion) to trigger pushes.
+Run `npm run ingest:fixtures` for a one-off catalog refresh, `npm run ingest:live` for a
+one-off live tick, or enable `INGEST_CATALOG_ENABLED` / `INGEST_LIVE_ENABLED` for
+scheduled ingest while the API runs. All paths trigger WebSocket pushes when scores
+or prices change. The player shell `/live` page subscribes to those updates when signed in.
 
 ## Player API (Phase 1)
 

@@ -12,6 +12,9 @@ export class LaunchUserDto {
 
   @ApiProperty({ example: 'USD' })
   currency: string;
+
+  @ApiProperty({ example: 'acme', description: 'Tenant slug for UI/debugging' })
+  casinoGroupSlug: string;
 }
 
 export class LaunchResponseDto {

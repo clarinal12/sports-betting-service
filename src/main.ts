@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import { ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
@@ -8,6 +9,7 @@ import { AllExceptionsFilter } from './shared/filters/all-exceptions.filter';
 import type { EnvConfig } from './shared/config/env.validation';
 import { RedisService } from './shared/cache/redis.service';
 import { RedisIoAdapter } from './shared/websocket/redis-io.adapter';
+import { httpCorsOptions } from './shared/cors/cors.config';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, { bufferLogs: true });
@@ -16,6 +18,12 @@ async function bootstrap() {
   const redis = app.get(RedisService);
   await redis.ping();
   app.useWebSocketAdapter(new RedisIoAdapter(app, redis.getClient()));
+
+  const configService = app.get(ConfigService<EnvConfig, true>);
+  const cors = httpCorsOptions();
+  if (cors) {
+    app.enableCors(cors);
+  }
 
   app.setGlobalPrefix('api/v1', {
     exclude: ['health', 'ready'],
@@ -30,7 +38,6 @@ async function bootstrap() {
   );
   app.useGlobalFilters(new AllExceptionsFilter());
 
-  const configService = app.get(ConfigService<EnvConfig, true>);
   const port = configService.get('PORT', { infer: true });
 
   const swaggerConfig = new DocumentBuilder()

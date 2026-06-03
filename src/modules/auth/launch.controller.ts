@@ -1,4 +1,4 @@
-import { BadRequestException, Controller, Get, Query } from '@nestjs/common';
+import { BadRequestException, Controller, Get, Header, Query } from '@nestjs/common';
 import {
   ApiOkResponse,
   ApiOperation,
@@ -8,7 +8,7 @@ import {
 import { LaunchResponseDto } from './dto/launch-response.dto';
 import { OperatorTokenVerifier } from './operator-token.verifier';
 import { SessionService } from './session.service';
-import { UserContext } from './user-context.types';
+import type { UserContext } from './user-context.types';
 
 @ApiTags('auth')
 @Controller('launch')
@@ -19,6 +19,7 @@ export class LaunchController {
   ) {}
 
   @Get()
+  @Header('Cache-Control', 'no-store')
   @ApiOperation({
     summary: 'Exchange an operator launch token for a player session token',
   })
@@ -34,14 +35,18 @@ export class LaunchController {
     }
 
     const { payload, credentials } = await this.verifier.verify(token);
-    const user: UserContext = {
+    const sessionUser: UserContext = {
       userId: payload.userId,
       username: payload.username,
       casinoGroupId: credentials.group.id,
       currency: credentials.group.defaultCurrency,
     };
 
-    const { sessionToken, expiresIn } = this.sessions.mint(user);
-    return { sessionToken, expiresIn, user };
+    const { sessionToken, expiresIn } = this.sessions.mint(sessionUser);
+    return {
+      sessionToken,
+      expiresIn,
+      user: { ...sessionUser, casinoGroupSlug: credentials.group.slug },
+    };
   }
 }

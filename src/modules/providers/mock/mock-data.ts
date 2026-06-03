@@ -1,4 +1,5 @@
 import {
+  LiveIngestScope,
   NormalizedEvent,
   NormalizedFixture,
   NormalizedMarket,
@@ -299,3 +300,44 @@ export const mockSnapshot: ProviderSnapshot = {
   markets: liveData.markets,
   selections: liveData.selections,
 };
+
+/** Live tick: in-play fixtures for the requested league keys only. */
+export function buildMockLiveSnapshot(scope: LiveIngestScope): ProviderSnapshot {
+  const allowedLeagues = new Set(scope.sportKeys);
+  const fixtures = mockSnapshot.fixtures.filter(
+    (fixture) =>
+      fixture.status === 'LIVE' && allowedLeagues.has(fixture.leagueKey),
+  );
+  const liveRefs = new Set(fixtures.map((fixture) => fixture.providerRef));
+  const events = mockSnapshot.events.filter((event) =>
+    liveRefs.has(event.fixtureProviderRef),
+  );
+  const eventRefs = new Set(events.map((event) => event.providerRef));
+  const markets = mockSnapshot.markets.filter((market) =>
+    eventRefs.has(market.eventProviderRef),
+  );
+  const marketRefs = new Set(markets.map((market) => market.providerRef));
+  const selections = mockSnapshot.selections.filter((selection) =>
+    marketRefs.has(selection.marketProviderRef),
+  );
+
+  const leagueKeys = new Set(fixtures.map((fixture) => fixture.leagueKey));
+  const teamKeys = new Set(
+    fixtures.flatMap((fixture) => [fixture.homeTeamKey, fixture.awayTeamKey]),
+  );
+  const sportKeys = new Set(
+    mockSnapshot.leagues
+      .filter((league) => leagueKeys.has(league.key))
+      .map((league) => league.sportKey),
+  );
+
+  return {
+    sports: mockSnapshot.sports.filter((sport) => sportKeys.has(sport.key)),
+    leagues: mockSnapshot.leagues.filter((league) => leagueKeys.has(league.key)),
+    teams: mockSnapshot.teams.filter((team) => teamKeys.has(team.key)),
+    fixtures,
+    events,
+    markets,
+    selections,
+  };
+}

@@ -5,11 +5,17 @@ import { App } from 'supertest/types';
 import { AppModule } from '../src/app.module';
 import { AllExceptionsFilter } from '../src/shared/filters/all-exceptions.filter';
 import { IngestionService } from '../src/modules/ingestion/ingestion.service';
+import { CasinoGroupsService } from '../src/modules/casino-groups/casino-groups.service';
 import { PrismaService } from '../src/shared/database/prisma.service';
+import {
+  ACME_LEAGUE_PREFIXES,
+  BETZONE_LEAGUE_PREFIXES,
+  isLeagueOffered,
+} from '../src/modules/casino-groups/tenant-offering.config';
 
 /**
  * Phase 2 e2e: live events + markets/odds, with tenant scoping.
- * acme enables all leagues; betzone enables only soccer.
+ * acme enables basketball, baseball, american football, soccer; betzone basketball only.
  */
 describe('Events & markets (e2e)', () => {
   let app: INestApplication<App>;
@@ -46,10 +52,27 @@ describe('Events & markets (e2e)', () => {
       update: {},
     });
 
+    const casinoGroups = app.get(CasinoGroupsService);
+    await casinoGroups.invalidate({
+      id: acme.id,
+      slug: acme.slug,
+      name: acme.name,
+      defaultCurrency: acme.defaultCurrency,
+      timezone: acme.timezone,
+    });
+    await casinoGroups.invalidate({
+      id: betzone.id,
+      slug: betzone.slug,
+      name: betzone.name,
+      defaultCurrency: betzone.defaultCurrency,
+      timezone: betzone.timezone,
+    });
+
     const leagues = await prisma.league.findMany({
       select: { id: true, key: true },
     });
     for (const league of leagues) {
+      const acmeEnabled = isLeagueOffered(league.key, ACME_LEAGUE_PREFIXES);
       await prisma.casinoGroupLeague.upsert({
         where: {
           casinoGroupId_leagueId: {
@@ -57,8 +80,12 @@ describe('Events & markets (e2e)', () => {
             leagueId: league.id,
           },
         },
-        create: { casinoGroupId: acme.id, leagueId: league.id, enabled: true },
-        update: { enabled: true },
+        create: {
+          casinoGroupId: acme.id,
+          leagueId: league.id,
+          enabled: acmeEnabled,
+        },
+        update: { enabled: acmeEnabled },
       });
       await prisma.casinoGroupLeague.upsert({
         where: {
@@ -70,9 +97,11 @@ describe('Events & markets (e2e)', () => {
         create: {
           casinoGroupId: betzone.id,
           leagueId: league.id,
-          enabled: league.key.startsWith('soccer_'),
+          enabled: isLeagueOffered(league.key, BETZONE_LEAGUE_PREFIXES),
         },
-        update: { enabled: league.key.startsWith('soccer_') },
+        update: {
+          enabled: isLeagueOffered(league.key, BETZONE_LEAGUE_PREFIXES),
+        },
       });
     }
   });
@@ -104,8 +133,8 @@ describe('Events & markets (e2e)', () => {
 
     expect(acmeEvents.length).toBeGreaterThan(betzoneEvents.length);
     expect(acmeEvents.every((e) => e.status === 'LIVE')).toBe(true);
-    // betzone has exactly one live soccer event in the mock data.
-    expect(betzoneEvents).toHaveLength(1);
+    expect(betzoneEvents.length).toBeGreaterThan(0);
+    expect(betzoneEvents.every((e) => e.status === 'LIVE')).toBe(true);
   });
 
   it('returns markets with decimal odds as strings', async () => {
@@ -131,20 +160,24 @@ describe('Events & markets (e2e)', () => {
   });
 
   it('blocks cross-tenant access to a disabled-league event (404)', async () => {
-    // Find a basketball (NBA) event via acme, then request it as betzone.
+    // Find a soccer event via acme, then request it as betzone (basketball-only).
     const events = await request(app.getHttpServer())
       .get('/api/v1/events/live')
       .set('X-Casino-Group', 'e2e-evt-acme')
       .expect(200);
 
-    const nbaShortNames = ['MIA', 'LAL', 'GSW', 'BOS'];
-    const nbaEvent = (
-      events.body as { id: string; homeTeam: { shortName: string } }[]
-    ).find((e) => nbaShortNames.includes(e.homeTeam.shortName));
-    expect(nbaEvent).toBeDefined();
+    const soccerShortNames = ['ARS', 'CHE', 'LIV', 'MCI', 'RMA', 'FCB'];
+    const soccerEvent = (
+      events.body as { id: string; homeTeam: { shortName: string | null } }[]
+    ).find(
+      (e) =>
+        e.homeTeam.shortName &&
+        soccerShortNames.includes(e.homeTeam.shortName),
+    );
+    expect(soccerEvent).toBeDefined();
 
     await request(app.getHttpServer())
-      .get(`/api/v1/events/${nbaEvent!.id}`)
+      .get(`/api/v1/events/${soccerEvent!.id}`)
       .set('X-Casino-Group', 'e2e-evt-betzone')
       .expect(404);
   });

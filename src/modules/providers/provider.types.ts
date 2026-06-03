@@ -99,8 +99,25 @@ export interface ProviderSnapshot {
   selections: NormalizedSelection[];
 }
 
+/** Odds API sport keys to poll on a live tick (e.g. `basketball_nba`). */
+export interface LiveIngestScope {
+  sportKeys: string[];
+}
+
+export const EMPTY_PROVIDER_SNAPSHOT: ProviderSnapshot = {
+  sports: [],
+  leagues: [],
+  teams: [],
+  fixtures: [],
+  events: [],
+  markets: [],
+  selections: [],
+};
+
 export interface FixtureProviderPort {
   fetchSnapshot(): Promise<ProviderSnapshot>;
+  /** Scores + odds for in-play scope only; skips catalog `/sports` on Odds API. */
+  fetchLiveSnapshot?(scope: LiveIngestScope): Promise<ProviderSnapshot>;
 }
 
 export const FIXTURE_PROVIDER = Symbol('FIXTURE_PROVIDER');

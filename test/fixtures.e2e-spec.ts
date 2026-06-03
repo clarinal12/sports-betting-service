@@ -5,7 +5,13 @@ import { App } from 'supertest/types';
 import { AppModule } from '../src/app.module';
 import { AllExceptionsFilter } from '../src/shared/filters/all-exceptions.filter';
 import { IngestionService } from '../src/modules/ingestion/ingestion.service';
+import { CasinoGroupsService } from '../src/modules/casino-groups/casino-groups.service';
 import { PrismaService } from '../src/shared/database/prisma.service';
+import {
+  ACME_LEAGUE_PREFIXES,
+  BETZONE_LEAGUE_PREFIXES,
+  isLeagueOffered,
+} from '../src/modules/casino-groups/tenant-offering.config';
 
 /**
  * Tenant-scoping e2e: seeds catalog + two groups with different enabled
@@ -46,10 +52,27 @@ describe('Player API tenant scoping (e2e)', () => {
       update: {},
     });
 
+    const casinoGroups = app.get(CasinoGroupsService);
+    await casinoGroups.invalidate({
+      id: acme.id,
+      slug: acme.slug,
+      name: acme.name,
+      defaultCurrency: acme.defaultCurrency,
+      timezone: acme.timezone,
+    });
+    await casinoGroups.invalidate({
+      id: betzone.id,
+      slug: betzone.slug,
+      name: betzone.name,
+      defaultCurrency: betzone.defaultCurrency,
+      timezone: betzone.timezone,
+    });
+
     const leagues = await prisma.league.findMany({
       select: { id: true, key: true },
     });
     for (const league of leagues) {
+      const acmeEnabled = isLeagueOffered(league.key, ACME_LEAGUE_PREFIXES);
       await prisma.casinoGroupLeague.upsert({
         where: {
           casinoGroupId_leagueId: {
@@ -57,10 +80,13 @@ describe('Player API tenant scoping (e2e)', () => {
             leagueId: league.id,
           },
         },
-        create: { casinoGroupId: acme.id, leagueId: league.id, enabled: true },
-        update: { enabled: true },
+        create: {
+          casinoGroupId: acme.id,
+          leagueId: league.id,
+          enabled: acmeEnabled,
+        },
+        update: { enabled: acmeEnabled },
       });
-      // BetZone enables only soccer leagues.
       await prisma.casinoGroupLeague.upsert({
         where: {
           casinoGroupId_leagueId: {
@@ -71,9 +97,11 @@ describe('Player API tenant scoping (e2e)', () => {
         create: {
           casinoGroupId: betzone.id,
           leagueId: league.id,
-          enabled: league.key.startsWith('soccer_'),
+          enabled: isLeagueOffered(league.key, BETZONE_LEAGUE_PREFIXES),
         },
-        update: { enabled: league.key.startsWith('soccer_') },
+        update: {
+          enabled: isLeagueOffered(league.key, BETZONE_LEAGUE_PREFIXES),
+        },
       });
     }
   });
@@ -112,8 +140,13 @@ describe('Player API tenant scoping (e2e)', () => {
     const acmeKeys = (acme.body as { key: string }[]).map((s) => s.key).sort();
     const betzoneKeys = (betzone.body as { key: string }[]).map((s) => s.key);
 
-    expect(acmeKeys).toEqual(['basketball', 'soccer']);
-    expect(betzoneKeys).toEqual(['soccer']);
+    expect(acmeKeys).toEqual([
+      'americanfootball',
+      'baseball',
+      'basketball',
+      'soccer',
+    ]);
+    expect(betzoneKeys).toEqual(['basketball']);
   });
 
   it('excludes fixtures from disabled leagues', async () => {
@@ -124,7 +157,7 @@ describe('Player API tenant scoping (e2e)', () => {
 
     const body = res.body as { data: unknown[]; total: number };
     expect(body.total).toBeGreaterThan(0);
-    // BetZone has no basketball; soccer-only fixtures from mock data total 5.
+    // BetZone: NBA fixtures only from mock data (5 scheduled/live).
     expect(body.total).toBe(5);
   });
 });

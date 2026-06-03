@@ -6,7 +6,7 @@
 # Prereqs:
 #   npm run docker:up && npm run prisma:migrate && npm run db:seed && npm run start:dev
 #
-# Seeded casino groups: `acme` (all leagues) and `betzone` (soccer only).
+# Seeded casino groups: `acme` (basketball, baseball, NFL, soccer) and `betzone` (basketball only).
 
 @baseUrl = http://localhost:3001
 @api = {{baseUrl}}/api/v1
@@ -102,12 +102,12 @@ GET {{api}}/events/live
 GET {{api}}/events/live
 X-Casino-Group: does-not-exist
 
-### betzone sees only soccer (no NBA events) — compare with acme above
+### betzone sees only basketball (no soccer fixtures) — compare with acme above
 GET {{api}}/events/live
 X-Casino-Group: betzone
 
-### Cross-tenant block: betzone requesting an acme-only (NBA) event -> 404
-### 1) As acme, list live events and copy an NBA event id (MIA/LAL/GSW/BOS).
+### Cross-tenant block: betzone requesting a soccer-only event -> 404
+### 1) As acme, list live events and copy a soccer event id (ARS/CHE/LIV/MCI/RMA/FCB).
 ### 2) Paste it below and run as betzone.
 GET {{api}}/events/PASTE_NBA_EVENT_ID_HERE
 X-Casino-Group: betzone

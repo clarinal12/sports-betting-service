@@ -1,6 +1,12 @@
 import { NestFactory } from '@nestjs/core';
 import { Logger } from '@nestjs/common';
 import { AppModule } from '../src/app.module';
+import {
+  ACME_INGEST_SPORT_KEYS,
+  ACME_LEAGUE_PREFIXES,
+  BETZONE_LEAGUE_PREFIXES,
+  isLeagueOffered,
+} from '../src/modules/casino-groups/tenant-offering.config';
 import { IngestionService } from '../src/modules/ingestion/ingestion.service';
 import { PrismaService } from '../src/shared/database/prisma.service';
 import { CryptoService } from '../src/shared/crypto/crypto.service';
@@ -16,13 +22,17 @@ const DEMO_MERCHANTS = {
 };
 
 /**
- * Demo data for local development:
- *  - Catalog + fixtures via the mock provider (ingestion).
- *  - Two casino groups with different enabled-league sets, so tenant scoping
- *    is observable: `acme` offers everything, `betzone` only soccer.
+ * Demo data for local development (Odds API ingest + tenant league scoping):
+ *  - acme: basketball, baseball, american football, soccer (all leagues/regions)
+ *  - betzone: basketball only (all leagues/regions)
  */
 async function seed(): Promise<void> {
   const logger = new Logger('Seed');
+
+  if (process.env.FIXTURE_PROVIDER === 'odds-api' && !process.env.ODDS_API_SPORT_KEYS) {
+    process.env.ODDS_API_SPORT_KEYS = ACME_INGEST_SPORT_KEYS;
+  }
+
   const app = await NestFactory.createApplicationContext(AppModule, {
     logger: ['error', 'warn', 'log'],
   });
@@ -68,16 +78,9 @@ async function seed(): Promise<void> {
     const leagues = await prisma.league.findMany({
       select: { id: true, key: true },
     });
-    const leagueId = (key: string): string => {
-      const found = leagues.find((l) => l.key === key);
-      if (!found) {
-        throw new Error(`Seed expected league ${key} to exist after ingestion`);
-      }
-      return found.id;
-    };
 
-    // Acme: all leagues enabled.
     for (const league of leagues) {
+      const acmeEnabled = isLeagueOffered(league.key, ACME_LEAGUE_PREFIXES);
       await prisma.casinoGroupLeague.upsert({
         where: {
           casinoGroupId_leagueId: {
@@ -85,31 +88,28 @@ async function seed(): Promise<void> {
             leagueId: league.id,
           },
         },
-        create: { casinoGroupId: acme.id, leagueId: league.id, enabled: true },
-        update: { enabled: true },
+        create: {
+          casinoGroupId: acme.id,
+          leagueId: league.id,
+          enabled: acmeEnabled,
+        },
+        update: { enabled: acmeEnabled },
       });
-    }
 
-    // BetZone: only soccer leagues enabled (NBA present but disabled).
-    const betzoneLeagues: { key: string; enabled: boolean }[] = [
-      { key: 'soccer_epl', enabled: true },
-      { key: 'soccer_laliga', enabled: true },
-      { key: 'basketball_nba', enabled: false },
-    ];
-    for (const entry of betzoneLeagues) {
+      const betzoneEnabled = isLeagueOffered(league.key, BETZONE_LEAGUE_PREFIXES);
       await prisma.casinoGroupLeague.upsert({
         where: {
           casinoGroupId_leagueId: {
             casinoGroupId: betzone.id,
-            leagueId: leagueId(entry.key),
+            leagueId: league.id,
           },
         },
         create: {
           casinoGroupId: betzone.id,
-          leagueId: leagueId(entry.key),
-          enabled: entry.enabled,
+          leagueId: league.id,
+          enabled: betzoneEnabled,
         },
-        update: { enabled: entry.enabled },
+        update: { enabled: betzoneEnabled },
       });
     }
 

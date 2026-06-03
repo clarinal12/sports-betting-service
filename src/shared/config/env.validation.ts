@@ -51,6 +51,75 @@ export const envSchema = z.object({
     .min(1)
     .max(1000)
     .default(60),
+
+  // --- HTTP CORS (development only — browser clients e.g. sportsbook-player-shell) ---
+  /// Comma-separated allowed origins when NODE_ENV=development.
+  CORS_ORIGINS: z
+    .string()
+    .default('http://localhost:3000,http://127.0.0.1:3000')
+    .transform((value) =>
+      value
+        .split(',')
+        .map((origin) => origin.trim())
+        .filter(Boolean),
+    ),
+
+  // --- Fixture provider (Phase 3c — The Odds API) ---
+  /// `mock` for tests/local without API credits; `odds-api` for live data.
+  FIXTURE_PROVIDER: z.enum(['mock', 'odds-api']).default('mock'),
+  ODDS_API_KEY: z.string().optional(),
+  ODDS_API_BASE_URL: z
+    .string()
+    .url()
+    .default('https://api.the-odds-api.com/v4'),
+  /// Comma-separated sport keys, group alias (e.g. `basketball`), or `all`.
+  ODDS_API_SPORT_KEYS: z
+    .string()
+    .default('basketball,baseball,americanfootball,soccer')
+    .transform((value) =>
+      value
+        .split(',')
+        .map((key) => key.trim())
+        .filter(Boolean),
+    ),
+  /// Bookmaker regions for the odds endpoint: `all` or comma-separated (us, us2, uk, eu, au).
+  ODDS_API_REGIONS: z.string().default('all'),
+  ODDS_API_MARKETS: z
+    .string()
+    .default('h2h,spreads,totals')
+    .transform((value) =>
+      value
+        .split(',')
+        .map((key) => key.trim())
+        .filter(Boolean),
+    ),
+  ODDS_API_ODDS_FORMAT: z.enum(['decimal', 'american']).default('decimal'),
+
+  /// Minutes before kickoff to include scheduled fixtures on live ingest ticks.
+  INGEST_LIVE_PRESTART_MINUTES: z.coerce.number().int().min(0).max(120).default(15),
+  /// When true, the API process polls live fixtures on a fixed interval.
+  INGEST_LIVE_ENABLED: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((value) => value === 'true'),
+  /// Seconds between in-process live ingest ticks (CLI `ingest:live` is unaffected).
+  INGEST_LIVE_INTERVAL_SECONDS: z.coerce
+    .number()
+    .int()
+    .min(15)
+    .max(3600)
+    .default(60),
+  /// When true, runs full catalog ingest (`ingest:fixtures`) on a cron schedule.
+  INGEST_CATALOG_ENABLED: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((value) => value === 'true'),
+  /// Standard 5-field cron for catalog ingest (default: every 6 hours at :00).
+  INGEST_CATALOG_CRON: z.string().min(9).max(100).default('0 */6 * * *'),
+  /// Pause Odds API ingest when `x-requests-remaining` drops below this.
+  INGEST_ODDS_API_REMAINING_MIN: z.coerce.number().int().min(0).max(10_000).default(20),
+  /// Minutes to pause ingest after HTTP 401 from The Odds API.
+  INGEST_ODDS_API_PAUSE_MINUTES: z.coerce.number().int().min(1).max(1440).default(30),
 });
 
 export type EnvConfig = z.infer<typeof envSchema>;
@@ -68,6 +137,15 @@ export function validateEnv(
   }
 
   const env = result.data;
+
+  if (env.FIXTURE_PROVIDER === 'odds-api' && env.NODE_ENV !== 'test') {
+    if (!env.ODDS_API_KEY?.trim()) {
+      throw new Error(
+        'Environment validation failed:\n  - ODDS_API_KEY is required when FIXTURE_PROVIDER=odds-api',
+      );
+    }
+  }
+
   if (env.NODE_ENV === 'production') {
     const problems: string[] = [];
     if (env.SESSION_JWT_SECRET === DEV_SESSION_SECRET) {

@@ -25,6 +25,7 @@ import {
 } from './realtime.constants';
 import { eventRoom, marketRoom } from './realtime-rooms';
 import { RealtimeAccessService } from './realtime-access.service';
+import { socketIoCorsOptions } from '../../shared/cors/cors.config';
 
 interface SocketData {
   user: UserContext;
@@ -32,7 +33,7 @@ interface SocketData {
 
 @WebSocketGateway({
   namespace: REALTIME_NAMESPACE,
-  cors: { origin: true },
+  cors: socketIoCorsOptions(),
 })
 @UsePipes(
   new ValidationPipe({
