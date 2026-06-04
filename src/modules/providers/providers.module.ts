@@ -25,6 +25,6 @@ import { OddsApiProvider } from './odds-api/odds-api.provider';
       inject: [ConfigService, MockFixtureProvider, OddsApiProvider],
     },
   ],
-  exports: [FIXTURE_PROVIDER],
+  exports: [FIXTURE_PROVIDER, OddsApiProvider],
 })
 export class ProvidersModule {}

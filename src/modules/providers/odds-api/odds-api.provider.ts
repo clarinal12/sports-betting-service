@@ -188,10 +188,48 @@ export class OddsApiProvider implements FixtureProviderPort {
     baseUrl: string,
     sportKey: string,
   ): Promise<OddsApiEventScore[]> {
+    return this.fetchScoresForEventIdsInternal(apiKey, baseUrl, sportKey, []);
+  }
+
+  /**
+   * Fetches live, upcoming, and recently completed scores. When eventIds is
+   * non-empty, the API filters to those games (used for bet settlement).
+   */
+  async fetchScoresForEventIds(
+    sportKey: string,
+    eventIds: string[],
+  ): Promise<OddsApiEventScore[]> {
+    const apiKey = this.requireApiKey();
+    const baseUrl = this.config.get('ODDS_API_BASE_URL', { infer: true });
+    return this.fetchScoresForEventIdsInternal(
+      apiKey,
+      baseUrl,
+      sportKey,
+      eventIds,
+    );
+  }
+
+  private async fetchScoresForEventIdsInternal(
+    apiKey: string,
+    baseUrl: string,
+    sportKey: string,
+    eventIds: string[],
+  ): Promise<OddsApiEventScore[]> {
+    const daysFrom = this.config.get('ODDS_API_SCORES_DAYS_FROM', {
+      infer: true,
+    });
+    const params: Record<string, string | number> = { apiKey, daysFrom };
+    if (eventIds.length > 0) {
+      params.eventIds = eventIds.join(',');
+    }
+    const label =
+      eventIds.length > 0
+        ? `${sportKey} scores (${eventIds.length} event id(s))`
+        : `${sportKey} scores`;
     const response = await this.get<OddsApiEventScore[]>(
       `${baseUrl}/sports/${sportKey}/scores`,
-      { apiKey, daysFrom: 1 },
-      `${sportKey} scores`,
+      params,
+      label,
     );
     return response.data;
   }

@@ -111,3 +111,29 @@ X-Casino-Group: betzone
 ### 2) Paste it below and run as betzone.
 GET {{api}}/events/PASTE_NBA_EVENT_ID_HERE
 X-Casino-Group: betzone
+
+### ────────────────────────────────────────────────────────────────────────
+### Betting (Phase 4) — requires session token from launch above
+### ────────────────────────────────────────────────────────────────────────
+
+@idempotencyKey = bet-{{$timestamp}}
+
+# @name placeBet
+### Place a single-selection bet (paste a selection id from markets response)
+POST {{api}}/bets
+Authorization: Bearer {{launch.response.body.sessionToken}}
+Idempotency-Key: {{idempotencyKey}}
+Content-Type: application/json
+
+{
+  "selectionIds": ["PASTE_SELECTION_ID_HERE"],
+  "stake": "10.00"
+}
+
+### List my bets
+GET {{api}}/bets
+Authorization: Bearer {{launch.response.body.sessionToken}}
+
+### Bet detail (chained from place bet)
+GET {{api}}/bets/{{placeBet.response.body.id}}
+Authorization: Bearer {{launch.response.body.sessionToken}}

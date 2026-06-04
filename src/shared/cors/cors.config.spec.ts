@@ -19,7 +19,9 @@ describe('cors.config', () => {
   it('enables CORS in development', () => {
     process.env.NODE_ENV = 'development';
     expect(isDevelopmentEnv()).toBe(true);
-    expect(httpCorsOptions()?.origin).toContain('http://localhost:3000');
+    const http = httpCorsOptions();
+    expect(http?.origin).toContain('http://localhost:3000');
+    expect(http?.allowedHeaders).toContain('Idempotency-Key');
     expect(socketIoCorsOptions()).toEqual({
       origin: ['http://localhost:3000', 'http://127.0.0.1:3000'],
       credentials: true,

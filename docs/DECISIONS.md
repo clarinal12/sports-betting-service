@@ -4,7 +4,7 @@ Locked choices for the first implementation phases. Update this file when decisi
 
 | Topic | Decision | Notes |
 |-------|----------|-------|
-| v1 player scope | **Odds display only** | Bet placement and wallet reserve in Phase 4 |
+| v1 player scope | **Odds display + bet placement** | Settlement and back office in later phases |
 | ORM | **Prisma 6** | PostgreSQL (`DATABASE_URL` in schema); Prisma 7 deferred |
 | Odds provider (dev) | **Mock adapter first** | Real provider integrated in Phase 1–2 |
 | Player identity | **External user service** | JWT/JWKS in Phase 3; not built locally |

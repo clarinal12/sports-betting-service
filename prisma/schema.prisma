@@ -50,6 +50,28 @@ enum SelectionStatus {
   VOID
 }
 
+enum BetStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  WON
+  LOST
+  VOID
+}
+
+enum BetLegOutcome {
+  PENDING
+  WON
+  LOST
+  VOID
+}
+
+enum WalletOutboxStatus {
+  PENDING
+  COMPLETED
+  FAILED
+}
+
 /// A tenant (white-label operator). Players and content are scoped to a group.
 model CasinoGroup {
   id              String            @id @default(cuid())
@@ -207,9 +229,76 @@ model Selection {
 
   market   Market         @relation(fields: [marketId], references: [id], onDelete: Cascade)
   snapshots OddsSnapshot[]
+  betLegs   BetLeg[]
 
   @@index([marketId])
   @@map("selections")
+}
+
+/// Player bet (single or accumulator). Wallet debit is driven by `wallet_outbox`.
+model Bet {
+  id                  String    @id @default(cuid())
+  casinoGroupId       String
+  userId              String
+  idempotencyKey      String
+  stake               Decimal   @db.Decimal(12, 2)
+  currency            String
+  status              BetStatus @default(PENDING)
+  combinedOdds        Decimal   @db.Decimal(12, 3)
+  potentialPayout     Decimal   @db.Decimal(14, 2)
+  walletReservationId String?
+  rejectionReason     String?
+  /// Actual payout credited on WON; stake returned on VOID; 0 on LOST.
+  payoutAmount        Decimal?  @db.Decimal(14, 2)
+  settledAt           DateTime?
+  /// Set when results are overdue from the provider (cleared on settle or manual result).
+  settlementNote      String?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  legs BetLeg[]
+
+  @@unique([casinoGroupId, userId, idempotencyKey])
+  @@index([casinoGroupId, userId, createdAt(sort: Desc)])
+  @@index([status])
+  @@map("bets")
+}
+
+/// One selection leg within a bet (price frozen at placement).
+model BetLeg {
+  id                 String  @id @default(cuid())
+  betId              String
+  selectionId        String
+  marketId           String
+  eventId            String
+  selectionName      String
+  priceAtPlacement   Decimal       @db.Decimal(10, 3)
+  legOrder           Int
+  outcome            BetLegOutcome @default(PENDING)
+
+  bet       Bet       @relation(fields: [betId], references: [id], onDelete: Cascade)
+  selection Selection @relation(fields: [selectionId], references: [id])
+
+  @@index([betId])
+  @@index([selectionId])
+  @@map("bet_legs")
+}
+
+/// Retries wallet reserve for bets that could not debit synchronously (FR-B3).
+model WalletOutbox {
+  id          String             @id @default(cuid())
+  betId       String             @unique
+  type        String
+  payload     Json
+  status      WalletOutboxStatus @default(PENDING)
+  attempts    Int                @default(0)
+  lastError   String?
+  nextRetryAt DateTime?
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+
+  @@index([status, nextRetryAt])
+  @@map("wallet_outbox")
 }
 
 /// Append-only price history for audit and charts. Plain Postgres for now;

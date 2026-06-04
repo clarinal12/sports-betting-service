@@ -48,17 +48,29 @@ reload from scratch:
 npm run db:reset
 ```
 
-To refresh odds/schedule only (keeps groups): `npm run ingest:fixtures`.
+To refresh odds/schedule only (keeps groups): `npm run ingest:fixtures`. With
+`FIXTURE_PROVIDER=odds-api`, catalog ingest **upserts only** (no stale-fixture purge).
+Mock ingest removes stale `mock_*` fixtures not in the snapshot (skipping any with bets).
 
 To refresh **live scores and in-play odds** only (cheap; scoped to LIVE fixtures
 already in the DB): `npm run ingest:live`. Run `ingest:fixtures` first so the
 catalog exists.
 
+**Recommended schedulers** (copy from [`.env.example`](.env.example) for odds-api + real bets):
+
+| Kind | Enable | Cadence |
+|------|--------|---------|
+| **Results + settle** | `RESULTS_INGEST_ENABLED=true` | `RESULTS_INGEST_POLL_SECONDS=120` |
+| Catalog (schedule) | `INGEST_CATALOG_ENABLED=false` or cron | `INGEST_CATALOG_CRON=0 */6 * * *` |
+| Live (in-play UI only) | `INGEST_LIVE_ENABLED=false` until needed | `INGEST_LIVE_INTERVAL_SECONDS=60` |
+| Settle-only worker | `SETTLEMENT_ENABLED=false` | (included in results tick) |
+
 **Automatic ingest** (while the API is running):
 
 | Kind | Enable | Cadence (recommended) |
 |------|--------|------------------------|
-| Live | `INGEST_LIVE_ENABLED=true` | `INGEST_LIVE_INTERVAL_SECONDS=60` |
+| **Results + settle** | `RESULTS_INGEST_ENABLED=true` | `RESULTS_INGEST_POLL_SECONDS=120` |
+| Live | `INGEST_LIVE_ENABLED=true` when testing live book | `INGEST_LIVE_INTERVAL_SECONDS=60` |
 | Catalog | `INGEST_CATALOG_ENABLED=true` | `INGEST_CATALOG_CRON=0 */6 * * *` (every 6h) |
 
 Both schedulers use a Redis lock (no double-poll across instances) and pause when
@@ -191,8 +203,66 @@ token, or (dev only) the `X-Casino-Group` slug header.
 | `GET /api/v1/events/:id` | Event detail + live state |
 | `GET /api/v1/events/:id/markets` | Markets + selections with odds |
 | `GET /api/v1/markets/:id` | Single market |
+| `POST /api/v1/bets` | Place bet (session + `Idempotency-Key` header) |
+| `GET /api/v1/bets` | List bets for the authenticated player |
+| `GET /api/v1/bets/:id` | Bet detail |
 
 Decimal odds are returned as **strings** (e.g. `"1.95"`) to preserve precision.
+
+### Betting (Phase 4)
+
+1. Exchange operator launch token: `GET /api/v1/launch?token=...` → `sessionToken`
+2. Place bet: `POST /api/v1/bets` with `Authorization: Bearer <sessionToken>` and header `Idempotency-Key: <uuid>`
+
+```json
+{ "selectionIds": ["<selectionId>"], "stake": "10.00" }
+```
+
+Local dev uses `WALLET_PROVIDER=stub` (default balance `WALLET_STUB_BALANCE`). Production integrates `POST /wallet/reserve` on the user service when `WALLET_PROVIDER=http`. Failed wallet debits are retried via the wallet outbox worker (`WALLET_OUTBOX_POLL_SECONDS`).
+
+### Settlement (Phase 4.5)
+
+When all legs are on **ENDED** events with **SETTLED** (or **VOID**) markets, accepted bets are graded and wallet credits are applied:
+
+- **WON** — credits `potentialPayout` (`WIN`)
+- **LOST** — no credit
+- **VOID** — refunds stake (`REFUND`)
+
+#### Results ingest (bet-driven — use this)
+
+`ingest:fixtures` is **catalog/pricing only**. To settle real bets, refresh **results for open bets** then grade:
+
+```bash
+npm run ingest:results
+```
+
+This calls The Odds API `GET /scores` with `eventIds` from **ACCEPTED** bets (`daysFrom` = `ODDS_API_SCORES_DAYS_FROM`, default `3`), updates events in the DB, flags overdue bets, then runs settlement.
+
+Automatic (while API is running):
+
+```env
+RESULTS_INGEST_ENABLED=true
+RESULTS_INGEST_POLL_SECONDS=120
+```
+
+`ingest:live` still helps for live odds/scores on the live slate; **results ingest** is what ties settlement to your actual liabilities.
+
+#### Manual result (feed gap)
+
+When The Odds API no longer returns an event on `/scores` (common for some MiLB games), set the result yourself then settle:
+
+```bash
+npm run result:manual -- --event <eventProviderRef> --home 3 --away 2
+npm run settle   # optional if not using ingest:results
+```
+
+Find `eventProviderRef` in Prisma Studio (`events.providerRef`) or bet leg event links.
+
+#### Settle only
+
+`npm run settle` — grades bets already **ENDED** + **SETTLED** in the DB. Optional scheduler: `SETTLEMENT_ENABLED=true`.
+
+Bet responses include `payoutAmount`, `settledAt`, `settlementNote` (when awaiting results), and per-leg `outcome` when settled.
 
 ### API playground
 
@@ -209,6 +279,22 @@ curl -H "X-Casino-Group: betzone" "http://localhost:3001/api/v1/fixtures?pageSiz
 MVP decisions: [docs/DECISIONS.md](docs/DECISIONS.md). Full design: [docs/DESIGN.md](docs/DESIGN.md).
 
 If port `3001` is in use, set `PORT` in `.env` to a free port before `npm run start:dev`.
+
+### Dev DB vs tests
+
+`npm run test:e2e` forces `FIXTURE_PROVIDER=mock` and runs a full catalog ingest on
+`DATABASE_URL`. Mock ingest only purges stale `mock_*` rows (never odds-api fixtures).
+Odds-api ingest never purges. You should still point e2e at a separate database when
+developing with real odds data:
+
+```bash
+# create once: createdb -U sports sports_betting_test  # or via docker
+TEST_DATABASE_URL=postgresql://sports:sports@localhost:5432/sports_betting_test npm run test:e2e
+```
+
+`start:dev` does **not** run catalog ingest on boot; scheduled ingest only fires on the
+cron (`INGEST_CATALOG_CRON`). The live scheduler (`INGEST_LIVE_ENABLED`) runs `ingest:live`
+immediately on startup and does not replace the catalog with mock data.
 
 ## Run tests
 

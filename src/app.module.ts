@@ -17,6 +17,8 @@ import { FixturesModule } from './modules/fixtures/fixtures.module';
 import { EventsModule } from './modules/events/events.module';
 import { MarketsModule } from './modules/markets/markets.module';
 import { RealtimeModule } from './modules/realtime/realtime.module';
+import { BetsModule } from './modules/bets/bets.module';
+import { SettlementModule } from './modules/settlement/settlement.module';
 
 @Module({
   imports: [
@@ -46,6 +48,8 @@ import { RealtimeModule } from './modules/realtime/realtime.module';
     EventsModule,
     MarketsModule,
     RealtimeModule,
+    BetsModule,
+    SettlementModule,
   ],
 })
 export class AppModule {}

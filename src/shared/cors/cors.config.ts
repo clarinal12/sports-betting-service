@@ -33,7 +33,12 @@ export function httpCorsOptions():
   return {
     origin: parseCorsOrigins(),
     credentials: true,
-    allowedHeaders: ['Authorization', 'Content-Type', 'X-Casino-Group'],
+    allowedHeaders: [
+      'Authorization',
+      'Content-Type',
+      'X-Casino-Group',
+      'Idempotency-Key',
+    ],
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   };
 }

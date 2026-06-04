@@ -25,6 +25,9 @@
     "db:reset": "prisma migrate reset --force",
     "ingest:fixtures": "ts-node src/modules/ingestion/ingest.command.ts",
     "ingest:live": "ts-node src/modules/ingestion/ingest-live.command.ts",
+    "ingest:results": "ts-node src/modules/ingestion/ingest-results.command.ts",
+    "settle": "ts-node src/modules/settlement/settle.command.ts",
+    "result:manual": "ts-node src/modules/ingestion/manual-result.command.ts",
     "dev:token": "ts-node src/modules/auth/dev-token.command.ts",
     "docker:up": "docker compose up -d",
     "docker:down": "docker compose down"

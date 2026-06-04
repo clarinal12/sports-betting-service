@@ -40,8 +40,39 @@ export const envSchema = z.object({
     .transform((value) => value === 'true'),
   /// Clock-skew tolerance (seconds) when verifying operator launch tokens.
   OPERATOR_JWT_CLOCK_SKEW: z.coerce.number().int().min(0).max(300).default(5),
-  /// Base URL of the external user/wallet service (used from Phase 4).
+  /// Base URL of the external user/wallet service (required when WALLET_PROVIDER=http).
   USER_SERVICE_BASE_URL: z.string().url().optional(),
+  /// `stub` = in-memory balance (dev/e2e); `http` = call USER_SERVICE_BASE_URL.
+  WALLET_PROVIDER: z.enum(['stub', 'http']).default('stub'),
+  /// Starting balance per user for stub wallet (decimal string).
+  WALLET_STUB_BALANCE: z.string().default('10000.00'),
+  /// Stake bounds for bet placement (decimal strings).
+  BET_MIN_STAKE: z.string().default('1.00'),
+  BET_MAX_STAKE: z.string().default('10000.00'),
+  BET_MAX_PAYOUT: z.string().default('100000.00'),
+  /// How often to retry pending wallet outbox entries (seconds).
+  WALLET_OUTBOX_POLL_SECONDS: z.coerce.number().int().min(5).max(300).default(30),
+  /// When true, polls for ACCEPTED bets on ENDED events and settles them.
+  SETTLEMENT_ENABLED: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((value) => value === 'true'),
+  SETTLEMENT_POLL_SECONDS: z.coerce.number().int().min(15).max(3600).default(60),
+  /// Hours after kickoff before flagging ACCEPTED bets awaiting provider results.
+  SETTLEMENT_STALE_HOURS: z.coerce.number().int().min(1).max(168).default(6),
+  /// When true, polls The Odds API /scores for open bets, then runs settlement.
+  RESULTS_INGEST_ENABLED: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((value) => value === 'true'),
+  RESULTS_INGEST_POLL_SECONDS: z.coerce
+    .number()
+    .int()
+    .min(30)
+    .max(3600)
+    .default(120),
+  /// Passed to The Odds API GET /scores daysFrom (1–3 per provider docs).
+  ODDS_API_SCORES_DAYS_FROM: z.coerce.number().int().min(1).max(3).default(3),
 
   // --- Real-time (Phase 3b) ---
   /// Max subscribe/unsubscribe operations per casino group per minute (FR-C3).
@@ -138,12 +169,30 @@ export function validateEnv(
 
   const env = result.data;
 
+  if (env.WALLET_PROVIDER === 'http' && env.NODE_ENV !== 'test') {
+    if (!env.USER_SERVICE_BASE_URL?.trim()) {
+      throw new Error(
+        'Environment validation failed:\n  - USER_SERVICE_BASE_URL is required when WALLET_PROVIDER=http',
+      );
+    }
+  }
+
   if (env.FIXTURE_PROVIDER === 'odds-api' && env.NODE_ENV !== 'test') {
     if (!env.ODDS_API_KEY?.trim()) {
       throw new Error(
         'Environment validation failed:\n  - ODDS_API_KEY is required when FIXTURE_PROVIDER=odds-api',
       );
     }
+  }
+
+  if (
+    env.RESULTS_INGEST_ENABLED &&
+    env.SETTLEMENT_ENABLED &&
+    env.NODE_ENV !== 'test'
+  ) {
+    console.warn(
+      '[env] SETTLEMENT_ENABLED is redundant when RESULTS_INGEST_ENABLED=true; settlement-only worker will not start.',
+    );
   }
 
   if (env.NODE_ENV === 'production') {

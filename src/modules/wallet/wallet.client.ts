@@ -2,28 +2,27 @@ import { HttpService } from '@nestjs/axios';
 import {
   Injectable,
   Logger,
-  ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { isAxiosError } from 'axios';
 import { firstValueFrom } from 'rxjs';
 import { EnvConfig } from '../../shared/config/env.validation';
 import { CircuitBreaker } from '../../shared/resilience/circuit-breaker';
-import { WalletBalance, WalletPort } from './wallet.port';
+import {
+  WalletBalance,
+  WalletCreditRequest,
+  WalletCreditResult,
+  WalletPort,
+  WalletReserveError,
+  WalletReserveRequest,
+  WalletReserveResult,
+} from './wallet.port';
 
 const REQUEST_TIMEOUT_MS = 2000;
 
-/**
- * HTTP client for the external user/wallet service, wrapped in a circuit
- * breaker so a flaky upstream fails fast (open after 5 consecutive failures,
- * half-open after 10s) rather than piling up requests. Identity-sensitive
- * paths fail closed.
- *
- * Phase 3a: skeleton only — `getBalance` is wired but not yet consumed by any
- * route. Bet placement (Phase 4) will use it.
- */
 @Injectable()
-export class WalletClient implements WalletPort {
-  private readonly logger = new Logger(WalletClient.name);
+export class WalletHttpClient implements WalletPort {
+  private readonly logger = new Logger(WalletHttpClient.name);
   private readonly breaker = new CircuitBreaker({
     failureThreshold: 5,
     cooldownMs: 10_000,
@@ -38,11 +37,7 @@ export class WalletClient implements WalletPort {
     userId: string,
     casinoGroupId: string,
   ): Promise<WalletBalance> {
-    const baseUrl = this.config.get('USER_SERVICE_BASE_URL', { infer: true });
-    if (!baseUrl) {
-      throw new ServiceUnavailableException('User service not configured');
-    }
-
+    const baseUrl = this.requireBaseUrl();
     try {
       return await this.breaker.execute(async () => {
         const response = await firstValueFrom(
@@ -62,7 +57,85 @@ export class WalletClient implements WalletPort {
           (error as Error).message
         }`,
       );
-      throw new ServiceUnavailableException('Wallet service unavailable');
+      throw new WalletReserveError('Wallet service unavailable', 'UNAVAILABLE');
     }
+  }
+
+  async reserve(request: WalletReserveRequest): Promise<WalletReserveResult> {
+    const baseUrl = this.requireBaseUrl();
+    try {
+      return await this.breaker.execute(async () => {
+        const response = await firstValueFrom(
+          this.http.post<{ reservationId: string }>(
+            `${baseUrl}/wallet/reserve`,
+            {
+              userId: request.userId,
+              casinoGroupId: request.casinoGroupId,
+              amount: request.amount,
+              currency: request.currency,
+              reference: request.reference,
+              idempotencyKey: request.idempotencyKey,
+            },
+            { timeout: REQUEST_TIMEOUT_MS },
+          ),
+        );
+        return { reservationId: response.data.reservationId };
+      });
+    } catch (error) {
+      if (isAxiosError(error)) {
+        const status = error.response?.status;
+        if (status === 402 || status === 409) {
+          throw new WalletReserveError(
+            'Insufficient balance',
+            'INSUFFICIENT_FUNDS',
+          );
+        }
+      }
+      this.logger.warn(
+        `Wallet reserve failed for bet ${request.reference}: ${
+          (error as Error).message
+        }`,
+      );
+      throw new WalletReserveError('Wallet service unavailable', 'UNAVAILABLE');
+    }
+  }
+
+  async creditPayout(request: WalletCreditRequest): Promise<WalletCreditResult> {
+    const baseUrl = this.requireBaseUrl();
+    try {
+      return await this.breaker.execute(async () => {
+        const response = await firstValueFrom(
+          this.http.post<{ transactionId: string }>(
+            `${baseUrl}/wallet/credit`,
+            {
+              userId: request.userId,
+              casinoGroupId: request.casinoGroupId,
+              amount: request.amount,
+              currency: request.currency,
+              reference: request.reference,
+              idempotencyKey: request.idempotencyKey,
+              type: request.type,
+            },
+            { timeout: REQUEST_TIMEOUT_MS },
+          ),
+        );
+        return { transactionId: response.data.transactionId };
+      });
+    } catch (error) {
+      this.logger.warn(
+        `Wallet credit failed for bet ${request.reference}: ${
+          (error as Error).message
+        }`,
+      );
+      throw new WalletReserveError('Wallet service unavailable', 'UNAVAILABLE');
+    }
+  }
+
+  private requireBaseUrl(): string {
+    const baseUrl = this.config.get('USER_SERVICE_BASE_URL', { infer: true });
+    if (!baseUrl) {
+      throw new WalletReserveError('User service not configured', 'UNAVAILABLE');
+    }
+    return baseUrl;
   }
 }

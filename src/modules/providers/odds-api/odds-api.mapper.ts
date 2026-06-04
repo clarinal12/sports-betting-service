@@ -188,14 +188,14 @@ export function mapOddsApiToSnapshot(input: MapOddsApiInput): ProviderSnapshot {
         name: event.away_team,
       });
 
-      const status = fixtureStatus(event.commence_time, score);
+      const fixtureStat = fixtureStatus(event.commence_time, score);
       fixtures.set(event.id, {
         providerRef: event.id,
         leagueKey: sportKey,
         homeTeamKey: homeKey,
         awayTeamKey: awayKey,
         startsAt: event.commence_time,
-        status,
+        status: fixtureStat,
       });
 
       const { homeScore, awayScore } = parseScore(
@@ -204,10 +204,15 @@ export function mapOddsApiToSnapshot(input: MapOddsApiInput): ProviderSnapshot {
         event.away_team,
       );
 
+      const eventStat = eventStatus(event.commence_time, score);
+      const isEnded = eventStat === 'ENDED';
+      const marketStatus = isEnded ? 'SETTLED' : 'OPEN';
+      const selectionStatus = isEnded ? 'SETTLED' : 'OPEN';
+
       events.set(event.id, {
         providerRef: event.id,
         fixtureProviderRef: event.id,
-        status: eventStatus(event.commence_time, score),
+        status: eventStat,
         homeScore,
         awayScore,
       });
@@ -232,7 +237,7 @@ export function mapOddsApiToSnapshot(input: MapOddsApiInput): ProviderSnapshot {
           providerRef: marketRef,
           eventProviderRef: event.id,
           type,
-          status: 'OPEN',
+          status: marketStatus,
           line: marketLine(market),
         });
 
@@ -247,11 +252,55 @@ export function mapOddsApiToSnapshot(input: MapOddsApiInput): ProviderSnapshot {
             providerRef: selRef,
             marketProviderRef: marketRef,
             name: selectionLabel(outcome),
-            status: 'OPEN',
+            status: selectionStatus,
             price: String(outcome.price),
           });
         }
       }
+    }
+
+    // Completed games often leave /odds before /scores; still refresh status + result.
+    const oddsEventIds = new Set(
+      (input.oddsBySport.get(sportKey) ?? []).map((event) => event.id),
+    );
+    for (const score of input.scoresBySport.get(sportKey) ?? []) {
+      if (oddsEventIds.has(score.id) || events.has(score.id)) {
+        continue;
+      }
+      const homeKey = teamKey(sportKey, score.home_team);
+      const awayKey = teamKey(sportKey, score.away_team);
+      teams.set(homeKey, {
+        key: homeKey,
+        sportKey: config.groupSportKey,
+        name: score.home_team,
+      });
+      teams.set(awayKey, {
+        key: awayKey,
+        sportKey: config.groupSportKey,
+        name: score.away_team,
+      });
+      const fixtureStat = fixtureStatus(score.commence_time, score);
+      fixtures.set(score.id, {
+        providerRef: score.id,
+        leagueKey: sportKey,
+        homeTeamKey: homeKey,
+        awayTeamKey: awayKey,
+        startsAt: score.commence_time,
+        status: fixtureStat,
+      });
+      const { homeScore, awayScore } = parseScore(
+        score.scores,
+        score.home_team,
+        score.away_team,
+      );
+      const eventStat = eventStatus(score.commence_time, score);
+      events.set(score.id, {
+        providerRef: score.id,
+        fixtureProviderRef: score.id,
+        status: eventStat,
+        homeScore,
+        awayScore,
+      });
     }
   }
 

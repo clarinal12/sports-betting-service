@@ -2,6 +2,7 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { EnvConfig } from '../../shared/config/env.validation';
 import {
+  BetStatus,
   EventStatus,
   FixtureStatus,
   MarketStatus,
@@ -163,6 +164,62 @@ export class IngestionService {
     return summary;
   }
 
+  /**
+   * Updates event scores/status (and closes markets when ENDED) from a partial
+   * snapshot — used by bet-driven results ingest.
+   */
+  async applyResultsSnapshot(
+    snapshot: ProviderSnapshot,
+  ): Promise<{
+    events: number;
+    markets: number;
+    selections: number;
+    oddsSnapshots: number;
+  }> {
+    return this.ingestLiveData(snapshot);
+  }
+
+  /**
+   * Ops/dev: set final score and ENDED when The Odds API no longer returns the event.
+   */
+  async finalizeEventResult(
+    providerRef: string,
+    homeScore: number,
+    awayScore: number,
+  ): Promise<string | null> {
+    const event = await this.prisma.event.findUnique({
+      where: { providerRef },
+      select: { id: true, fixtureId: true },
+    });
+    if (!event) {
+      return null;
+    }
+
+    await this.prisma.$transaction([
+      this.prisma.fixture.update({
+        where: { id: event.fixtureId },
+        data: { status: FixtureStatus.ENDED },
+      }),
+      this.prisma.event.update({
+        where: { id: event.id },
+        data: {
+          status: EventStatus.ENDED,
+          homeScore,
+          awayScore,
+        },
+      }),
+    ]);
+    await this.closeMarketsForEndedEvent(event.id);
+    await this.prisma.bet.updateMany({
+      where: {
+        status: BetStatus.ACCEPTED,
+        legs: { some: { eventId: event.id } },
+      },
+      data: { settlementNote: null },
+    });
+    return event.id;
+  }
+
   private buildSummary(
     snapshot: ProviderSnapshot,
     fixtureCount: number,
@@ -299,36 +356,68 @@ export class IngestionService {
       return fixtureCount;
     }
 
-    const activeFixtureRefs = snapshot.fixtures.map(
-      (fixture) => fixture.providerRef,
-    );
     const isOddsApi =
       this.config.get('FIXTURE_PROVIDER', { infer: true }) === 'odds-api';
-
-    const removed =
-      activeFixtureRefs.length > 0
-        ? await this.prisma.fixture.deleteMany({
-            where: { providerRef: { notIn: activeFixtureRefs } },
-          })
-        : isOddsApi
-          ? await this.prisma.fixture.deleteMany({
-              where: { providerRef: { startsWith: 'mock_' } },
-            })
-          : { count: 0 };
-
-    if (removed.count > 0) {
-      this.logger.log(
-        activeFixtureRefs.length > 0
-          ? `Removed ${removed.count} stale fixture(s) not in provider snapshot`
-          : `Removed ${removed.count} mock fixture(s); odds-api snapshot had no fixtures (existing API rows kept)`,
+    if (isOddsApi) {
+      this.logger.debug(
+        'Odds API catalog ingest is upsert-only; stale fixtures are not purged',
       );
-    } else if (activeFixtureRefs.length === 0 && isOddsApi) {
-      this.logger.warn(
-        'Odds API returned no fixtures; kept existing DB fixtures (only mock_* would be purged)',
+      return fixtureCount;
+    }
+
+    // Mock ingest: purge stale mock_* only (never odds-api rows on a shared dev DB).
+    const activeMockRefs = snapshot.fixtures
+      .map((fixture) => fixture.providerRef)
+      .filter((ref) => ref.startsWith('mock_'));
+    const removedCount =
+      activeMockRefs.length > 0
+        ? await this.deleteStaleFixtures({
+            providerRef: {
+              startsWith: 'mock_',
+              notIn: activeMockRefs,
+            },
+          })
+        : 0;
+    if (removedCount > 0) {
+      this.logger.log(
+        `Removed ${removedCount} stale mock fixture(s) not in provider snapshot`,
       );
     }
 
     return fixtureCount;
+  }
+
+  /**
+   * Deletes fixtures matching `where` unless a selection on the fixture has bet legs.
+   */
+  private async deleteStaleFixtures(
+    where: Prisma.FixtureWhereInput,
+  ): Promise<number> {
+    const hasPlacedBets: Prisma.FixtureWhereInput = {
+      event: {
+        markets: {
+          some: {
+            selections: {
+              some: { betLegs: { some: {} } },
+            },
+          },
+        },
+      },
+    };
+
+    const skipped = await this.prisma.fixture.count({
+      where: { AND: [where, hasPlacedBets] },
+    });
+    if (skipped > 0) {
+      this.logger.log(
+        `Kept ${skipped} stale fixture(s) with placed bets (cannot purge while bet legs reference selections)`,
+      );
+    }
+
+    const removed = await this.prisma.fixture.deleteMany({
+      where: { AND: [where, { NOT: hasPlacedBets }] },
+    });
+    return removed.count;
   }
 
   private async ingestLiveData(
@@ -384,6 +473,9 @@ export class IngestionService {
         period: saved.period,
         clock: saved.clock,
       });
+      if (saved.status === EventStatus.ENDED) {
+        await this.closeMarketsForEndedEvent(saved.id);
+      }
       eventCount += 1;
     }
 
@@ -486,6 +578,18 @@ export class IngestionService {
       selections: selectionCount,
       oddsSnapshots: snapshotCount,
     };
+  }
+
+  /** When a game ends, close DB markets so settlement can grade placed bets. */
+  private async closeMarketsForEndedEvent(eventId: string): Promise<void> {
+    await this.prisma.market.updateMany({
+      where: { eventId },
+      data: { status: MarketStatus.SETTLED },
+    });
+    await this.prisma.selection.updateMany({
+      where: { market: { eventId } },
+      data: { status: SelectionStatus.SETTLED },
+    });
   }
 
   /** Acme: basketball, baseball, american football, soccer — all leagues/regions. */
