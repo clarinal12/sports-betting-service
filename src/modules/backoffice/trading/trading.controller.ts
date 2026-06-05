@@ -19,6 +19,17 @@ export class TradingController {
     private readonly scope: StaffScopeService,
   ) {}
 
+  @Get('markets')
+  @RequirePermission('trading.read')
+  @ApiQuery({ name: 'casinoGroupId', required: false })
+  async markets(
+    @CurrentStaff() staff: StaffContext,
+    @Query('casinoGroupId') casinoGroupId?: string,
+  ) {
+    const groupId = await this.scope.resolveCasinoGroupId(staff, casinoGroupId);
+    return this.trading.listTradableMarkets(groupId);
+  }
+
   @Get('exposure')
   @RequirePermission('trading.read')
   @ApiQuery({ name: 'casinoGroupId', required: false })

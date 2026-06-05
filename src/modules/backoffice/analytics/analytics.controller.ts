@@ -27,4 +27,21 @@ export class AnalyticsController {
     const groupId = await this.scope.resolveCasinoGroupId(staff, casinoGroupId);
     return this.analytics.summary(groupId);
   }
+
+  @Get('daily')
+  @RequirePermission('analytics.read')
+  @ApiQuery({ name: 'casinoGroupId', required: false })
+  @ApiQuery({ name: 'days', required: false, type: Number })
+  async daily(
+    @CurrentStaff() staff: StaffContext,
+    @Query('casinoGroupId') casinoGroupId?: string,
+    @Query('days') days?: string,
+  ) {
+    const groupId = await this.scope.resolveCasinoGroupId(staff, casinoGroupId);
+    const parsedDays = days ? Number.parseInt(days, 10) : 7;
+    return this.analytics.dailyGgrBySport(
+      groupId,
+      Number.isFinite(parsedDays) ? parsedDays : 7,
+    );
+  }
 }

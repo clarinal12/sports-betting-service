@@ -41,6 +41,17 @@ export class StaffBetsController {
     return this.bets.search(groupId, query);
   }
 
+  @Get('exceptions')
+  @RequirePermission('bets.read')
+  @ApiQuery({ name: 'casinoGroupId', required: false })
+  async exceptions(
+    @CurrentStaff() staff: StaffContext,
+    @Query('casinoGroupId') casinoGroupId?: string,
+  ) {
+    const groupId = await this.scope.resolveCasinoGroupId(staff, casinoGroupId);
+    return this.bets.listExceptions(groupId);
+  }
+
   @Get(':id')
   @RequirePermission('bets.read')
   @ApiQuery({ name: 'casinoGroupId', required: false })

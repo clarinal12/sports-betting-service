@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { BetLegOutcome, BetStatus } from '@prisma/client';
+import { BetLegOutcome, BetStatus, WalletOutboxStatus } from '@prisma/client';
 import { PrismaService } from '../../../shared/database/prisma.service';
 import { decimalToString } from '../../../shared/decimal/decimal.util';
 import { AuditService } from '../../../shared/audit/audit.service';
@@ -56,6 +56,108 @@ export class StaffBetsService {
       userId: bet.userId,
       walletReservationId: bet.walletReservationId,
       idempotencyKey: bet.idempotencyKey,
+    };
+  }
+
+  async listExceptions(casinoGroupId: string) {
+    const [pendingPlacement, settlementFlags, failedOutboxRows] =
+      await Promise.all([
+        this.prisma.bet.findMany({
+          where: { casinoGroupId, status: BetStatus.PENDING },
+          orderBy: { createdAt: 'desc' },
+          take: 50,
+          select: {
+            id: true,
+            userId: true,
+            status: true,
+            stake: true,
+            currency: true,
+            rejectionReason: true,
+            createdAt: true,
+          },
+        }),
+        this.prisma.bet.findMany({
+          where: {
+            casinoGroupId,
+            status: BetStatus.ACCEPTED,
+            settlementNote: { not: null },
+          },
+          orderBy: { updatedAt: 'desc' },
+          take: 50,
+          select: {
+            id: true,
+            userId: true,
+            status: true,
+            stake: true,
+            currency: true,
+            settlementNote: true,
+            updatedAt: true,
+          },
+        }),
+        this.prisma.walletOutbox.findMany({
+          where: {
+            status: { in: [WalletOutboxStatus.FAILED, WalletOutboxStatus.PENDING] },
+          },
+          orderBy: { updatedAt: 'desc' },
+          take: 100,
+          select: {
+            id: true,
+            betId: true,
+            status: true,
+            attempts: true,
+            lastError: true,
+            nextRetryAt: true,
+            updatedAt: true,
+          },
+        }),
+      ]);
+
+    const betIds = failedOutboxRows.map((row) => row.betId);
+    const outboxBets =
+      betIds.length > 0
+        ? await this.prisma.bet.findMany({
+            where: { id: { in: betIds }, casinoGroupId },
+            select: {
+              id: true,
+              userId: true,
+              status: true,
+              stake: true,
+              currency: true,
+            },
+          })
+        : [];
+    const betById = new Map(outboxBets.map((bet) => [bet.id, bet]));
+
+    const walletFailures = failedOutboxRows
+      .filter((row) => betById.has(row.betId))
+      .map((row) => ({
+        outboxId: row.id,
+        betId: row.betId,
+        outboxStatus: row.status,
+        attempts: row.attempts,
+        lastError: row.lastError,
+        nextRetryAt: row.nextRetryAt?.toISOString() ?? null,
+        updatedAt: row.updatedAt.toISOString(),
+        bet: betById.get(row.betId)!,
+      }));
+
+    return {
+      casinoGroupId,
+      pendingPlacement: pendingPlacement.map((bet) => ({
+        ...bet,
+        stake: decimalToString(bet.stake),
+        createdAt: bet.createdAt.toISOString(),
+      })),
+      settlementFlags: settlementFlags.map((bet) => ({
+        ...bet,
+        stake: decimalToString(bet.stake),
+        updatedAt: bet.updatedAt.toISOString(),
+      })),
+      walletFailures,
+      totalCount:
+        pendingPlacement.length +
+        settlementFlags.length +
+        walletFailures.length,
     };
   }
 

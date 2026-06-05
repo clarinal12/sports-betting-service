@@ -307,7 +307,11 @@ Staff APIs under `/api/v1/backoffice` (separate JWT from player sessions).
 | `POST /backoffice/settlement/events/:id/result` | Enter final score, close markets, settle |
 | `POST /backoffice/settlement/events/by-provider-ref/result` | Declare result by provider ref + settle |
 | `GET /backoffice/analytics/summary` | Bet counts + simple GGR |
+| `GET /backoffice/analytics/daily` | Daily GGR rollup by sport |
 | `GET /backoffice/compliance/audit` | Search audit log |
+| `GET /backoffice/compliance/audit/export` | Export audit log (CSV/JSON) |
+| `GET /backoffice/trading/markets` | Tradable markets for suspend/resume |
+| `GET /backoffice/bets/exceptions` | Bet exception queue |
 | `GET /backoffice/tenants` | List tenants the staff user may access |
 | `GET /backoffice/staff/platform-admins` | List platform admins + grants (SUPER_ADMIN) |
 | `PUT /backoffice/staff/:id/tenant-access` | Set platform admin merchant access (SUPER_ADMIN) |

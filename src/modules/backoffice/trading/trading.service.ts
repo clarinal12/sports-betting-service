@@ -22,6 +22,52 @@ export class TradingService {
     private readonly audit: AuditService,
   ) {}
 
+  async listTradableMarkets(casinoGroupId: string, limit = 50) {
+    const markets = await this.prisma.market.findMany({
+      where: {
+        status: { in: [MarketStatus.OPEN, MarketStatus.SUSPENDED] },
+        event: {
+          status: { notIn: [EventStatus.ENDED, EventStatus.CANCELLED] },
+          fixture: {
+            league: { groups: { some: { casinoGroupId, enabled: true } } },
+          },
+        },
+      },
+      select: {
+        id: true,
+        type: true,
+        status: true,
+        line: true,
+        event: {
+          select: {
+            id: true,
+            status: true,
+            providerRef: true,
+            fixture: {
+              select: {
+                homeTeam: { select: { name: true } },
+                awayTeam: { select: { name: true } },
+              },
+            },
+          },
+        },
+      },
+      orderBy: { updatedAt: 'desc' },
+      take: Math.min(Math.max(limit, 1), 100),
+    });
+
+    return markets.map((market) => ({
+      marketId: market.id,
+      marketType: market.type,
+      marketStatus: market.status,
+      marketLine: market.line ? decimalToString(market.line) : null,
+      eventId: market.event.id,
+      eventStatus: market.event.status,
+      providerRef: market.event.providerRef,
+      matchup: `${market.event.fixture.homeTeam.name} vs ${market.event.fixture.awayTeam.name}`,
+    }));
+  }
+
   async getExposure(casinoGroupId: string) {
     const bets = await this.prisma.bet.findMany({
       where: { casinoGroupId, status: BetStatus.ACCEPTED },
