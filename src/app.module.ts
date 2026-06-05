@@ -19,6 +19,7 @@ import { MarketsModule } from './modules/markets/markets.module';
 import { RealtimeModule } from './modules/realtime/realtime.module';
 import { BetsModule } from './modules/bets/bets.module';
 import { SettlementModule } from './modules/settlement/settlement.module';
+import { BackofficeModule } from './modules/backoffice/backoffice.module';
 import { AuditModule } from './shared/audit/audit.module';
 import { MetricsModule } from './shared/metrics/metrics.module';
 
@@ -54,6 +55,7 @@ import { MetricsModule } from './shared/metrics/metrics.module';
     RealtimeModule,
     BetsModule,
     SettlementModule,
+    BackofficeModule,
   ],
 })
 export class AppModule {}

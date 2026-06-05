@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 const DEV_SESSION_SECRET = 'dev-session-secret-change-me-please';
 const DEV_ENCRYPTION_KEY = 'dev-encryption-key-change-me-please';
+const DEV_STAFF_JWT_SECRET = 'dev-staff-jwt-secret-change-me-please';
 
 export const envSchema = z.object({
   NODE_ENV: z
@@ -31,6 +32,11 @@ export const envSchema = z.object({
     .enum(['true', 'false'])
     .default('true')
     .transform((value) => value === 'true'),
+
+  // --- Back office staff auth (Phase 6) ---
+  STAFF_JWT_SECRET: z.string().min(16).default(DEV_STAFF_JWT_SECRET),
+  STAFF_ACCESS_TTL: z.string().min(1).default('15m'),
+  STAFF_REFRESH_TTL: z.string().min(1).default('7d'),
 
   // --- Auth (Phase 3a) ---
   /// Secret used to sign/verify OUR short-lived player session tokens.
@@ -208,6 +214,9 @@ export function validateEnv(
     }
     if (env.SECRET_ENCRYPTION_KEY === DEV_ENCRYPTION_KEY) {
       problems.push('SECRET_ENCRYPTION_KEY must be set (not the dev default)');
+    }
+    if (env.STAFF_JWT_SECRET === DEV_STAFF_JWT_SECRET) {
+      problems.push('STAFF_JWT_SECRET must be set (not the dev default)');
     }
     if (env.AUTH_ALLOW_HEADER_FALLBACK) {
       problems.push('AUTH_ALLOW_HEADER_FALLBACK must be false in production');

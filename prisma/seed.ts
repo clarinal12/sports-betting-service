@@ -7,6 +7,8 @@ import {
   BETZONE_LEAGUE_PREFIXES,
   isLeagueOffered,
 } from '../src/modules/casino-groups/tenant-offering.config';
+import { StaffRole } from '@prisma/client';
+import { StaffAuthService } from '../src/modules/backoffice/staff/staff-auth.service';
 import { IngestionService } from '../src/modules/ingestion/ingestion.service';
 import { PrismaService } from '../src/shared/database/prisma.service';
 import { CryptoService } from '../src/shared/crypto/crypto.service';
@@ -40,6 +42,7 @@ async function seed(): Promise<void> {
     const prisma = app.get(PrismaService);
     const ingestion = app.get(IngestionService);
     const crypto = app.get(CryptoService);
+    const staffAuth = app.get(StaffAuthService);
 
     await ingestion.ingestFixtures();
 
@@ -112,8 +115,39 @@ async function seed(): Promise<void> {
       });
     }
 
+    const platformPassword = await staffAuth.hashPassword('Platform123!');
+    await prisma.staffUser.upsert({
+      where: { email: 'platform@example.com' },
+      create: {
+        email: 'platform@example.com',
+        passwordHash: platformPassword,
+        roles: [StaffRole.OPERATOR_ADMIN],
+        casinoGroupId: null,
+      },
+      update: {
+        passwordHash: platformPassword,
+        roles: [StaffRole.OPERATOR_ADMIN],
+      },
+    });
+
+    const acmeAdminPassword = await staffAuth.hashPassword('Acme123!');
+    await prisma.staffUser.upsert({
+      where: { email: 'admin@acme.example.com' },
+      create: {
+        email: 'admin@acme.example.com',
+        passwordHash: acmeAdminPassword,
+        roles: [StaffRole.OPERATOR_ADMIN],
+        casinoGroupId: acme.id,
+      },
+      update: {
+        passwordHash: acmeAdminPassword,
+        roles: [StaffRole.OPERATOR_ADMIN],
+        casinoGroupId: acme.id,
+      },
+    });
+
     logger.log(
-      'Seed completed: groups=acme,betzone (merchants: acme-merchant, betzone-merchant)',
+      'Seed completed: groups=acme,betzone; staff=platform@example.com, admin@acme.example.com',
     );
   } catch (error) {
     new Logger('Seed').error('Seed failed', error as Error);

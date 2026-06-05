@@ -281,6 +281,34 @@ curl -H "X-Casino-Group: acme" http://localhost:3001/api/v1/sports
 curl -H "X-Casino-Group: betzone" "http://localhost:3001/api/v1/fixtures?pageSize=5"
 ```
 
+### Back office (Phase 6.1–6.3)
+
+Staff APIs under `/api/v1/backoffice` (separate JWT from player sessions).
+
+| Endpoint | Description |
+|----------|-------------|
+| `POST /backoffice/auth/login` | Staff email + password → access + refresh tokens |
+| `POST /backoffice/auth/refresh` | Rotate tokens |
+| `POST /backoffice/auth/logout` | Revoke refresh session |
+| `GET /backoffice/staff/me` | Profile + permissions |
+| `GET/PATCH /backoffice/tenant` | Casino group settings (`?casinoGroupId=` for platform staff) |
+| `GET/PUT /backoffice/product/leagues` | Enable/disable leagues per tenant |
+| `POST /backoffice/merchants` | Create merchant (`tenant.create`) — returns `sportsSecret` once |
+
+After seed:
+
+```bash
+npx prisma db seed
+# platform operator: platform@example.com / Platform123!
+# acme tenant admin:  admin@acme.example.com / Acme123!
+```
+
+```bash
+curl -s -X POST http://localhost:3001/api/v1/backoffice/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"platform@example.com","password":"Platform123!"}'
+```
+
 ### Hardening (Phase 5)
 
 | Endpoint / doc | Purpose |

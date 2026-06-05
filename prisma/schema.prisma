@@ -72,6 +72,21 @@ enum WalletOutboxStatus {
   FAILED
 }
 
+enum StaffUserStatus {
+  ACTIVE
+  DISABLED
+}
+
+enum StaffRole {
+  OPERATOR_ADMIN
+  TRADER
+  RISK_MANAGER
+  CUSTOMER_SUPPORT
+  SETTLEMENT
+  FINANCE
+  COMPLIANCE
+}
+
 /// A tenant (white-label operator). Players and content are scoped to a group.
 model CasinoGroup {
   id              String            @id @default(cuid())
@@ -88,7 +103,10 @@ model CasinoGroup {
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @updatedAt
 
-  leagues CasinoGroupLeague[]
+  leagues         CasinoGroupLeague[]
+  staffUsers      StaffUser[]
+  offeringPolicy  OfferingPolicy?
+  riskLimits      RiskLimit[]
 
   @@map("casino_groups")
 }
@@ -338,4 +356,68 @@ model AuditLogEntry {
   @@index([casinoGroupId, createdAt(sort: Desc)])
   @@index([entityType, entityId])
   @@map("audit_log_entries")
+}
+
+/// Back-office operator (Phase 6). Not a player.
+model StaffUser {
+  id            String          @id @default(cuid())
+  email         String          @unique
+  passwordHash  String
+  /// Null = platform operator (cross-tenant); otherwise scoped to one casino group.
+  casinoGroupId String?
+  roles         StaffRole[]
+  status        StaffUserStatus @default(ACTIVE)
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  casinoGroup CasinoGroup?   @relation(fields: [casinoGroupId], references: [id], onDelete: SetNull)
+  sessions    StaffSession[]
+
+  @@index([casinoGroupId])
+  @@map("staff_users")
+}
+
+/// Refresh-token session for staff (separate from player session JWT).
+model StaffSession {
+  id               String    @id @default(cuid())
+  staffUserId      String
+  refreshTokenHash String    @unique
+  expiresAt        DateTime
+  revokedAt          DateTime?
+  createdAt          DateTime  @default(now())
+
+  staffUser StaffUser @relation(fields: [staffUserId], references: [id], onDelete: Cascade)
+
+  @@index([staffUserId])
+  @@map("staff_sessions")
+}
+
+/// Per-tenant product rules (market types per sport, etc.) — Phase 6 product domain.
+model OfferingPolicy {
+  id            String   @id @default(cuid())
+  casinoGroupId String   @unique
+  rules         Json?
+  updatedAt     DateTime @updatedAt
+
+  casinoGroup CasinoGroup @relation(fields: [casinoGroupId], references: [id], onDelete: Cascade)
+
+  @@map("offering_policies")
+}
+
+/// Stake/payout caps per tenant (GLOBAL scope in MVP).
+model RiskLimit {
+  id            String   @id @default(cuid())
+  casinoGroupId String
+  scope         String
+  scopeRef      String?
+  minStake      Decimal? @db.Decimal(12, 2)
+  maxStake      Decimal? @db.Decimal(12, 2)
+  maxPayout     Decimal? @db.Decimal(14, 2)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  casinoGroup CasinoGroup @relation(fields: [casinoGroupId], references: [id], onDelete: Cascade)
+
+  @@unique([casinoGroupId, scope, scopeRef])
+  @@map("risk_limits")
 }

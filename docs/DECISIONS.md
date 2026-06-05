@@ -40,6 +40,15 @@ Locked choices for the first implementation phases. Update this file when decisi
 |-------|----------|-------|
 | Bet leg snapshot | **Freeze `marketType`, `marketLine`, team names, `eventProviderRef` on `BetLeg` at placement** | Settlement grades from snapshot + live scores/market status; legacy legs without snapshot fall back to current `Selection`/`Market` join |
 
+## Phase 6 decisions (partial — 6.1–6.3)
+
+| Topic | Decision | Notes |
+|-------|----------|-------|
+| Staff identity | **Local `StaffUser` + argon2 + refresh sessions** | OIDC deferred; separate `STAFF_JWT_SECRET` from player session |
+| RBAC | **Role → permission map** (`OPERATOR_ADMIN`, `TRADER`, …) | `@RequirePermission()` on routes |
+| Merchant onboarding | **`POST /backoffice/merchants`** encrypts `sportsSecret`, enables leagues, audits | Plaintext secret returned once in response |
+| Platform vs tenant staff | **`casinoGroupId` null** = cross-tenant platform operator | Tenant staff scoped to one group |
+
 ## Phase 5 decisions
 
 | Topic | Decision | Notes |
