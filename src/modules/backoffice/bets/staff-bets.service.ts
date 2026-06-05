@@ -28,6 +28,9 @@ export class StaffBetsService {
         casinoGroupId,
         ...(query.userId ? { userId: query.userId } : {}),
         ...(query.status ? { status: query.status } : {}),
+        ...(query.eventId
+          ? { legs: { some: { eventId: query.eventId } } }
+          : {}),
       },
       orderBy: { createdAt: 'desc' },
       take: limit,

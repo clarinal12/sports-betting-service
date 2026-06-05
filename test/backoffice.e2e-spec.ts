@@ -72,19 +72,42 @@ describe('Back office (e2e)', () => {
     await prisma.staffCasinoGroupAccess.create({
       data: { staffUserId: paE2e.id, casinoGroupId: acme.id },
     });
+
+    await prisma.staffUser.upsert({
+      where: { email: 'op-e2e@example.com' },
+      create: {
+        email: 'op-e2e@example.com',
+        passwordHash: await staffAuth.hashPassword('OpE2e123!'),
+        roles: [StaffRole.OPERATOR_ADMIN],
+        casinoGroupId: acme.id,
+      },
+      update: {
+        passwordHash: await staffAuth.hashPassword('OpE2e123!'),
+        roles: [StaffRole.OPERATOR_ADMIN],
+        casinoGroupId: acme.id,
+      },
+    });
   });
 
   afterAll(async () => {
     await prisma.staffSession.deleteMany({
       where: {
-        staffUser: { email: { in: ['bo-e2e@example.com', 'pa-e2e@example.com'] } },
+        staffUser: {
+          email: {
+            in: ['bo-e2e@example.com', 'pa-e2e@example.com', 'op-e2e@example.com'],
+          },
+        },
       },
     });
     await prisma.staffCasinoGroupAccess.deleteMany({
       where: { staffUser: { email: 'pa-e2e@example.com' } },
     });
     await prisma.staffUser.deleteMany({
-      where: { email: { in: ['bo-e2e@example.com', 'pa-e2e@example.com'] } },
+      where: {
+        email: {
+          in: ['bo-e2e@example.com', 'pa-e2e@example.com', 'op-e2e@example.com'],
+        },
+      },
     });
     await prisma.casinoGroup.deleteMany({
       where: {
@@ -264,6 +287,66 @@ describe('Back office (e2e)', () => {
       .get(`/api/v1/backoffice/tenant?casinoGroupId=${betzone.id}`)
       .set('Authorization', `Bearer ${token}`)
       .expect(403);
+  });
+
+  it('denies tenant operator from running settlement', async () => {
+    const acme = await prisma.casinoGroup.findUniqueOrThrow({
+      where: { slug: 'acme' },
+    });
+
+    const login = await request(app.getHttpServer())
+      .post('/api/v1/backoffice/auth/login')
+      .send({ email: 'op-e2e@example.com', password: 'OpE2e123!' })
+      .expect(201);
+
+    const token = login.body.accessToken as string;
+
+    await request(app.getHttpServer())
+      .post(
+        `/api/v1/backoffice/settlement/events/e2e-fake-event/run?casinoGroupId=${acme.id}`,
+      )
+      .set('Authorization', `Bearer ${token}`)
+      .expect(403);
+  });
+
+  it('denies platform admin settlement on unassigned merchant', async () => {
+    const betzone = await prisma.casinoGroup.findUniqueOrThrow({
+      where: { slug: 'betzone' },
+    });
+
+    const login = await request(app.getHttpServer())
+      .post('/api/v1/backoffice/auth/login')
+      .send({ email: 'pa-e2e@example.com', password: 'PaE2e123!' })
+      .expect(201);
+
+    const token = login.body.accessToken as string;
+
+    await request(app.getHttpServer())
+      .post(
+        `/api/v1/backoffice/settlement/events/e2e-fake-event/run?casinoGroupId=${betzone.id}`,
+      )
+      .set('Authorization', `Bearer ${token}`)
+      .expect(403);
+  });
+
+  it('allows super admin to call settlement run on any merchant', async () => {
+    const betzone = await prisma.casinoGroup.findUniqueOrThrow({
+      where: { slug: 'betzone' },
+    });
+
+    const login = await request(app.getHttpServer())
+      .post('/api/v1/backoffice/auth/login')
+      .send({ email: 'bo-e2e@example.com', password: 'BoE2e123!' })
+      .expect(201);
+
+    const token = login.body.accessToken as string;
+
+    await request(app.getHttpServer())
+      .post(
+        `/api/v1/backoffice/settlement/events/e2e-fake-event/run?casinoGroupId=${betzone.id}`,
+      )
+      .set('Authorization', `Bearer ${token}`)
+      .expect(404);
   });
 
   it('lets super admin assign platform admin tenant access', async () => {

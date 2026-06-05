@@ -69,6 +69,7 @@ Seed logins: `super@example.com` (SUPER), `platform@example.com` (PLATFORM), `ad
 | Platform admin tenant scope | **`staff_casino_group_access` grants** | SUPER_ADMIN assigns which merchants a PLATFORM_ADMIN may access |
 | Tenant list API | **`GET /backoffice/tenants`** | Returns DB-backed list filtered by role + grants; no env-based tenant list in SPA |
 | Merchant onboarding | **`POST /backoffice/merchants`** encrypts `sportsSecret`, enables leagues, audits | Plaintext secret returned once in response |
+| Settlement run | **`settlement.run` for platform staff only** | SUPER_ADMIN any merchant; PLATFORM_ADMIN only granted merchants; tenant operators read-only |
 | Platform vs tenant staff | **`casinoGroupId` null** = cross-tenant platform operator | Tenant staff scoped to one group |
 | Trading | **Suspend event/market via DB status + audit** | Resume market when event not ENDED |
 | Bet void | **Staff `POST …/void` refunds stake, sets VOID** | ACCEPTED only; audited |

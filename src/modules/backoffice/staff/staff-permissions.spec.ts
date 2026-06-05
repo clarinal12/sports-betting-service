@@ -33,7 +33,20 @@ describe('staff-permissions', () => {
     const perms = permissionsForRoles([StaffRole.OPERATOR_ADMIN]);
     expect(perms).not.toContain('tenant.create');
     expect(perms).not.toContain('staff.read');
+    expect(perms).not.toContain('settlement.run');
     expect(perms).toContain('tenant.update');
+    expect(perms).toContain('settlement.read');
+  });
+
+  it('settlement role can view queue but not run settlement', () => {
+    const perms = permissionsForRoles([StaffRole.SETTLEMENT]);
+    expect(perms).toContain('settlement.read');
+    expect(perms).not.toContain('settlement.run');
+  });
+
+  it('platform admin can run settlement', () => {
+    const perms = permissionsForRoles([StaffRole.PLATFORM_ADMIN]);
+    expect(perms).toContain('settlement.run');
   });
 
   it('identifies platform scope roles', () => {

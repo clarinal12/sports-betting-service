@@ -74,6 +74,29 @@ export class SettlementService {
     }
   }
 
+  async settleBetsForEvent(
+    eventId: string,
+    casinoGroupId: string,
+  ): Promise<{ settled: number; attempted: number }> {
+    const bets = await this.prisma.bet.findMany({
+      where: {
+        casinoGroupId,
+        status: BetStatus.ACCEPTED,
+        legs: { some: { eventId } },
+      },
+      select: { id: true },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    let settled = 0;
+    for (const { id } of bets) {
+      if (await this.trySettleBet(id)) {
+        settled += 1;
+      }
+    }
+    return { settled, attempted: bets.length };
+  }
+
   async settleBatch(): Promise<number> {
     const bets = await this.prisma.bet.findMany({
       where: { status: BetStatus.ACCEPTED },

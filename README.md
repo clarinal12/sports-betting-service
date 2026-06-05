@@ -303,6 +303,9 @@ Staff APIs under `/api/v1/backoffice` (separate JWT from player sessions).
 | `GET /backoffice/bets/:id` | Bet detail |
 | `POST /backoffice/bets/:id/void` | Void ACCEPTED bet + refund stake |
 | `GET /backoffice/settlement/events` | Unsettled events with open bets |
+| `POST /backoffice/settlement/events/:id/run` | Settle open bets when event is ready |
+| `POST /backoffice/settlement/events/:id/result` | Enter final score, close markets, settle |
+| `POST /backoffice/settlement/events/by-provider-ref/result` | Declare result by provider ref + settle |
 | `GET /backoffice/analytics/summary` | Bet counts + simple GGR |
 | `GET /backoffice/compliance/audit` | Search audit log |
 | `GET /backoffice/tenants` | List tenants the staff user may access |

@@ -16,6 +16,7 @@ export const STAFF_PERMISSIONS = [
   'bets.read',
   'bets.void',
   'settlement.read',
+  'settlement.run',
   'analytics.read',
   'compliance.audit.read',
 ] as const;
@@ -36,13 +37,17 @@ const PLATFORM_OPS_PERMISSIONS: StaffPermission[] = [
   'bets.read',
   'bets.void',
   'settlement.read',
+  'settlement.run',
   'analytics.read',
   'compliance.audit.read',
 ];
 
 /** Full admin within one casino group — cannot onboard merchants. */
 const TENANT_OPERATOR_PERMISSIONS: StaffPermission[] = STAFF_PERMISSIONS.filter(
-  (p) => p !== 'tenant.create' && p !== 'staff.read',
+  (p) =>
+    p !== 'tenant.create' &&
+    p !== 'staff.read' &&
+    p !== 'settlement.run',
 );
 
 const ROLE_PERMISSIONS: Record<StaffRole, StaffPermission[]> = {

@@ -19,6 +19,11 @@ export class SearchBetsQueryDto {
   @IsEnum(BetStatus)
   status?: BetStatus;
 
+  @ApiPropertyOptional({ description: 'Filter bets touching this event' })
+  @IsOptional()
+  @IsString()
+  eventId?: string;
+
   @ApiPropertyOptional({ default: 50 })
   @IsOptional()
   @Type(() => Number)
