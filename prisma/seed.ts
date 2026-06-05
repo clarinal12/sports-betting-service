@@ -115,19 +115,47 @@ async function seed(): Promise<void> {
       });
     }
 
+    const superPassword = await staffAuth.hashPassword('Super123!');
+    await prisma.staffUser.upsert({
+      where: { email: 'super@example.com' },
+      create: {
+        email: 'super@example.com',
+        passwordHash: superPassword,
+        roles: [StaffRole.SUPER_ADMIN],
+        casinoGroupId: null,
+      },
+      update: {
+        passwordHash: superPassword,
+        roles: [StaffRole.SUPER_ADMIN],
+        casinoGroupId: null,
+      },
+    });
+
     const platformPassword = await staffAuth.hashPassword('Platform123!');
     await prisma.staffUser.upsert({
       where: { email: 'platform@example.com' },
       create: {
         email: 'platform@example.com',
         passwordHash: platformPassword,
-        roles: [StaffRole.OPERATOR_ADMIN],
+        roles: [StaffRole.PLATFORM_ADMIN],
         casinoGroupId: null,
       },
       update: {
         passwordHash: platformPassword,
-        roles: [StaffRole.OPERATOR_ADMIN],
+        roles: [StaffRole.PLATFORM_ADMIN],
+        casinoGroupId: null,
       },
+    });
+
+    const platformUser = await prisma.staffUser.findUniqueOrThrow({
+      where: { email: 'platform@example.com' },
+      select: { id: true },
+    });
+    await prisma.staffCasinoGroupAccess.deleteMany({
+      where: { staffUserId: platformUser.id },
+    });
+    await prisma.staffCasinoGroupAccess.create({
+      data: { staffUserId: platformUser.id, casinoGroupId: acme.id },
     });
 
     const acmeAdminPassword = await staffAuth.hashPassword('Acme123!');
@@ -147,7 +175,7 @@ async function seed(): Promise<void> {
     });
 
     logger.log(
-      'Seed completed: groups=acme,betzone; staff=platform@example.com, admin@acme.example.com',
+      'Seed completed: groups=acme,betzone; staff=super@example.com, platform@example.com, admin@acme.example.com',
     );
   } catch (error) {
     new Logger('Seed').error('Seed failed', error as Error);

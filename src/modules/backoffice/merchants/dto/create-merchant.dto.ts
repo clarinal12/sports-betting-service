@@ -18,10 +18,15 @@ export class CreateMerchantDto {
   @MinLength(2)
   name!: string;
 
-  @ApiProperty({ example: 'luckystar-merchant' })
+  @ApiPropertyOptional({
+    example: 'luckystar-merchant',
+    description:
+      'Operator id in the player launch JWT. Defaults to {slug}-merchant when omitted.',
+  })
+  @IsOptional()
   @IsString()
   @MinLength(3)
-  merchantId!: string;
+  merchantId?: string;
 
   @ApiPropertyOptional({ example: 'EUR' })
   @IsOptional()

@@ -1,12 +1,20 @@
-import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import {
+  BadRequestException,
+  Controller,
+  Get,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiQuery, ApiTags } from '@nestjs/swagger';
+import { StaffRole } from '@prisma/client';
 import { Type } from 'class-transformer';
 import { IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
 import { StaffAuthGuard } from '../staff/staff-auth.guard';
 import { RequirePermission } from '../staff/require-permission.decorator';
 import { CurrentStaff } from '../staff/current-staff.decorator';
-import { resolveStaffCasinoGroupId } from '../staff/staff-scope.util';
 import type { StaffContext } from '../staff/staff-context.types';
+import { StaffScopeService } from '../staff/staff-scope.service';
+import { hasStaffRole } from '../staff/staff-permissions';
 import { ComplianceService } from './compliance.service';
 
 class AuditSearchQueryDto {
@@ -31,17 +39,32 @@ class AuditSearchQueryDto {
 @UseGuards(StaffAuthGuard)
 @ApiBearerAuth()
 export class ComplianceController {
-  constructor(private readonly compliance: ComplianceService) {}
+  constructor(
+    private readonly compliance: ComplianceService,
+    private readonly scope: StaffScopeService,
+  ) {}
 
   @Get('audit')
   @RequirePermission('compliance.audit.read')
   @ApiQuery({ name: 'casinoGroupId', required: false })
-  audit(@CurrentStaff() staff: StaffContext, @Query() query: AuditSearchQueryDto) {
-    const groupId = staff.casinoGroupId
-      ? staff.casinoGroupId
-      : query.casinoGroupId
-        ? resolveStaffCasinoGroupId(staff, query.casinoGroupId)
-        : null;
+  async audit(
+    @CurrentStaff() staff: StaffContext,
+    @Query() query: AuditSearchQueryDto,
+  ) {
+    let groupId: string | null = null;
+    if (staff.casinoGroupId) {
+      groupId = staff.casinoGroupId;
+    } else if (query.casinoGroupId) {
+      groupId = await this.scope.resolveCasinoGroupId(
+        staff,
+        query.casinoGroupId,
+      );
+    } else if (!hasStaffRole(staff.roles, StaffRole.SUPER_ADMIN)) {
+      throw new BadRequestException(
+        'Query parameter casinoGroupId is required for platform operators',
+      );
+    }
+
     return this.compliance.searchAudit(groupId, {
       casinoGroupId: groupId ?? undefined,
       action: query.action,

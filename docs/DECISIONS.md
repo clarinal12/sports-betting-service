@@ -40,17 +40,47 @@ Locked choices for the first implementation phases. Update this file when decisi
 |-------|----------|-------|
 | Bet leg snapshot | **Freeze `marketType`, `marketLine`, team names, `eventProviderRef` on `BetLeg` at placement** | Settlement grades from snapshot + live scores/market status; legacy legs without snapshot fall back to current `Selection`/`Market` join |
 
-## Phase 6 decisions (6.1–6.8 API)
+## Phase 6 decisions (6.1–6.9)
+
+### API (6.1–6.8)
 
 | Topic | Decision | Notes |
 |-------|----------|-------|
 | Staff identity | **Local `StaffUser` + argon2 + refresh sessions** | OIDC deferred; separate `STAFF_JWT_SECRET` from player session |
-| RBAC | **Role → permission map** (`OPERATOR_ADMIN`, `TRADER`, …) | `@RequirePermission()` on routes |
+| RBAC | **Role → permission map** (`SUPER_ADMIN`, `PLATFORM_ADMIN`, `OPERATOR_ADMIN`, …) | `@RequirePermission()` on routes |
+| Admin hierarchy | **Three tiers** (see below) | Scope enforced via `casinoGroupId` + role guards |
+
+### Staff admin hierarchy (6.x)
+
+| Role | Scope | `casinoGroupId` | Can onboard merchants | Staff IAM (`staff.read`) |
+|------|--------|-----------------|------------------------|---------------------------|
+| **SUPER_ADMIN** | Platform | `null` | Yes | Yes |
+| **PLATFORM_ADMIN** | Platform | `null` | Yes | No |
+| **OPERATOR_ADMIN** | One tenant | required | No | No |
+
+- **SUPER_ADMIN** — break-glass, platform staff/IAM (future APIs), full permissions.
+- **PLATFORM_ADMIN** — day-to-day fleet ops: tenants, trading, bets, settlement views across brands.
+- **OPERATOR_ADMIN** — tenant CEO/admin; full ops inside one group only.
+
+Seed logins: `super@example.com` (SUPER), `platform@example.com` (PLATFORM), `admin@acme.example.com` (OPERATOR).
+
+| Topic | Decision | Notes |
+|-------|----------|-------|
+| Platform admin tenant scope | **`staff_casino_group_access` grants** | SUPER_ADMIN assigns which merchants a PLATFORM_ADMIN may access |
+| Tenant list API | **`GET /backoffice/tenants`** | Returns DB-backed list filtered by role + grants; no env-based tenant list in SPA |
 | Merchant onboarding | **`POST /backoffice/merchants`** encrypts `sportsSecret`, enables leagues, audits | Plaintext secret returned once in response |
 | Platform vs tenant staff | **`casinoGroupId` null** = cross-tenant platform operator | Tenant staff scoped to one group |
 | Trading | **Suspend event/market via DB status + audit** | Resume market when event not ENDED |
 | Bet void | **Staff `POST …/void` refunds stake, sets VOID** | ACCEPTED only; audited |
 | Analytics MVP | **On-demand `groupBy` on bets** | Daily rollups deferred |
+
+### Portal (6.9)
+
+| Topic | Decision | Notes |
+|-------|----------|-------|
+| Back office SPA | **Separate repo `sports-betting-backoffice`** (Next.js 16 + Tailwind) | Sibling to `sportsbook-player-shell`; port `3002` |
+| Staff auth in UI | **Email/password → staff JWT** stored in `localStorage` | Refresh on 401; separate from player launch flow |
+| Platform tenant scope | **`casinoGroupId` query param** + header picker | Optional `NEXT_PUBLIC_DEV_TENANTS` for local dropdown |
 
 ## Phase 5 decisions
 

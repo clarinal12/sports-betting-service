@@ -2,7 +2,7 @@ import {
   ConflictException,
   Injectable,
 } from '@nestjs/common';
-import { CasinoGroupStatus, Prisma } from '@prisma/client';
+import { CasinoGroupStatus, Prisma, StaffRole } from '@prisma/client';
 import { randomBytes } from 'crypto';
 import { NBA_LEAGUE_KEY } from '../../casino-groups/tenant-offering.config';
 import { isLeagueOffered } from '../../casino-groups/tenant-offering.config';
@@ -10,6 +10,9 @@ import { CryptoService } from '../../../shared/crypto/crypto.service';
 import { PrismaService } from '../../../shared/database/prisma.service';
 import { AuditService } from '../../../shared/audit/audit.service';
 import { CreateMerchantDto } from './dto/create-merchant.dto';
+import { defaultMerchantIdFromSlug } from './merchant-id.util';
+import { StaffContext } from '../staff/staff-context.types';
+import { hasStaffRole } from '../staff/staff-permissions';
 
 @Injectable()
 export class MerchantsService {
@@ -19,12 +22,18 @@ export class MerchantsService {
     private readonly audit: AuditService,
   ) {}
 
-  async createMerchant(dto: CreateMerchantDto, staffUserId: string) {
+  async createMerchant(dto: CreateMerchantDto, staff: StaffContext) {
+    const merchantId =
+      dto.merchantId?.trim() || defaultMerchantIdFromSlug(dto.slug);
     const sportsSecretPlain =
       dto.sportsSecret ?? randomBytes(32).toString('base64url');
     const offeredKeys = dto.enabledLeagueKeys?.length
       ? dto.enabledLeagueKeys
       : [NBA_LEAGUE_KEY];
+    const autoGrantTenantAccess =
+      staff.casinoGroupId === null &&
+      hasStaffRole(staff.roles, StaffRole.PLATFORM_ADMIN) &&
+      !hasStaffRole(staff.roles, StaffRole.SUPER_ADMIN);
 
     try {
       const group = await this.prisma.$transaction(async (tx) => {
@@ -32,7 +41,7 @@ export class MerchantsService {
           data: {
             slug: dto.slug,
             name: dto.name,
-            merchantId: dto.merchantId,
+            merchantId,
             defaultCurrency: dto.defaultCurrency ?? 'USD',
             status: CasinoGroupStatus.ACTIVE,
             sportsSecret: this.crypto.encrypt(sportsSecretPlain),
@@ -80,12 +89,28 @@ export class MerchantsService {
           update: {},
         });
 
+        if (autoGrantTenantAccess) {
+          await tx.staffCasinoGroupAccess.upsert({
+            where: {
+              staffUserId_casinoGroupId: {
+                staffUserId: staff.staffUserId,
+                casinoGroupId: created.id,
+              },
+            },
+            create: {
+              staffUserId: staff.staffUserId,
+              casinoGroupId: created.id,
+            },
+            update: {},
+          });
+        }
+
         return created;
       });
 
       await this.audit.record({
         actorType: 'staff',
-        actorId: staffUserId,
+        actorId: staff.staffUserId,
         casinoGroupId: group.id,
         action: 'tenant.merchant_created',
         entityType: 'CasinoGroup',
@@ -94,6 +119,7 @@ export class MerchantsService {
           slug: group.slug,
           merchantId: group.merchantId,
           enabledLeagueKeys: offeredKeys,
+          tenantAccessAutoGranted: autoGrantTenantAccess,
         },
         reason: 'Back office merchant onboarding',
       });

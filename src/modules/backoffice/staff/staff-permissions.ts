@@ -7,6 +7,8 @@ export const STAFF_PERMISSIONS = [
   'product.leagues.read',
   'product.leagues.update',
   'staff.read',
+  'staff.tenant_access.read',
+  'staff.tenant_access.update',
   'trading.read',
   'trading.suspend',
   'trading.limits.read',
@@ -20,8 +22,45 @@ export const STAFF_PERMISSIONS = [
 
 export type StaffPermission = (typeof STAFF_PERMISSIONS)[number];
 
+/** Cross-tenant fleet operations (no platform IAM). */
+const PLATFORM_OPS_PERMISSIONS: StaffPermission[] = [
+  'tenant.read',
+  'tenant.create',
+  'tenant.update',
+  'product.leagues.read',
+  'product.leagues.update',
+  'trading.read',
+  'trading.suspend',
+  'trading.limits.read',
+  'trading.limits.update',
+  'bets.read',
+  'bets.void',
+  'settlement.read',
+  'analytics.read',
+  'compliance.audit.read',
+];
+
+/** Full admin within one casino group — cannot onboard merchants. */
+const TENANT_OPERATOR_PERMISSIONS: StaffPermission[] = STAFF_PERMISSIONS.filter(
+  (p) => p !== 'tenant.create' && p !== 'staff.read',
+);
+
 const ROLE_PERMISSIONS: Record<StaffRole, StaffPermission[]> = {
-  OPERATOR_ADMIN: [...STAFF_PERMISSIONS],
+  /**
+   * Platform super-user: full permissions including staff IAM (future staff APIs).
+   * Must have casinoGroupId null.
+   */
+  SUPER_ADMIN: [...STAFF_PERMISSIONS],
+  /**
+   * Platform operator: cross-tenant ops and merchant onboarding, no staff IAM.
+   * Must have casinoGroupId null.
+   */
+  PLATFORM_ADMIN: [...PLATFORM_OPS_PERMISSIONS],
+  /**
+   * Tenant operator admin: full control within one casino group.
+   * Must have casinoGroupId set.
+   */
+  OPERATOR_ADMIN: [...TENANT_OPERATOR_PERMISSIONS],
   TRADER: [
     'tenant.read',
     'product.leagues.read',
@@ -62,8 +101,14 @@ const ROLE_PERMISSIONS: Record<StaffRole, StaffPermission[]> = {
     'analytics.read',
     'compliance.audit.read',
   ],
-  COMPLIANCE: ['tenant.read', 'staff.read', 'compliance.audit.read', 'bets.read'],
+  COMPLIANCE: ['tenant.read', 'compliance.audit.read', 'bets.read'],
 };
+
+/** Roles that operate cross-tenant (casinoGroupId must be null). */
+export const PLATFORM_SCOPE_ROLES: StaffRole[] = [
+  StaffRole.SUPER_ADMIN,
+  StaffRole.PLATFORM_ADMIN,
+];
 
 export function permissionsForRoles(roles: StaffRole[]): StaffPermission[] {
   const set = new Set<StaffPermission>();
@@ -80,4 +125,15 @@ export function hasPermission(
   required: StaffPermission,
 ): boolean {
   return permissions.includes(required);
+}
+
+export function hasStaffRole(
+  roles: readonly StaffRole[],
+  role: StaffRole,
+): boolean {
+  return roles.includes(role);
+}
+
+export function isPlatformScopeRole(roles: readonly StaffRole[]): boolean {
+  return roles.some((role) => PLATFORM_SCOPE_ROLES.includes(role));
 }

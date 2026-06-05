@@ -1,0 +1,2 @@
+-- Three-tier platform hierarchy: SUPER_ADMIN > PLATFORM_ADMIN > OPERATOR_ADMIN (tenant)
+ALTER TYPE "StaffRole" ADD VALUE 'SUPER_ADMIN' BEFORE 'PLATFORM_ADMIN';

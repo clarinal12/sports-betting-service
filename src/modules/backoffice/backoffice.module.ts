@@ -2,11 +2,15 @@ import { Module } from '@nestjs/common';
 import { WalletModule } from '../wallet/wallet.module';
 import { StaffAuthController } from './staff/staff-auth.controller';
 import { StaffProfileController } from './staff/staff-profile.controller';
+import { StaffAdminController } from './staff/staff-admin.controller';
 import { StaffAuthService } from './staff/staff-auth.service';
+import { StaffAdminService } from './staff/staff-admin.service';
 import { StaffJwtService } from './staff/staff-jwt.service';
 import { StaffAuthGuard } from './staff/staff-auth.guard';
+import { StaffScopeService } from './staff/staff-scope.service';
 import { TenantController } from './tenant/tenant.controller';
 import { TenantService } from './tenant/tenant.service';
+import { TenantsController } from './tenants/tenants.controller';
 import { ProductController } from './product/product.controller';
 import { ProductService } from './product/product.service';
 import { MerchantsController } from './merchants/merchants.controller';
@@ -27,6 +31,8 @@ import { ComplianceService } from './compliance/compliance.service';
   controllers: [
     StaffAuthController,
     StaffProfileController,
+    StaffAdminController,
+    TenantsController,
     TenantController,
     ProductController,
     MerchantsController,
@@ -38,8 +44,10 @@ import { ComplianceService } from './compliance/compliance.service';
   ],
   providers: [
     StaffAuthService,
+    StaffAdminService,
     StaffJwtService,
     StaffAuthGuard,
+    StaffScopeService,
     TenantService,
     ProductService,
     MerchantsService,

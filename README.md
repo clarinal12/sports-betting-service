@@ -305,19 +305,31 @@ Staff APIs under `/api/v1/backoffice` (separate JWT from player sessions).
 | `GET /backoffice/settlement/events` | Unsettled events with open bets |
 | `GET /backoffice/analytics/summary` | Bet counts + simple GGR |
 | `GET /backoffice/compliance/audit` | Search audit log |
+| `GET /backoffice/tenants` | List tenants the staff user may access |
+| `GET /backoffice/staff/platform-admins` | List platform admins + grants (SUPER_ADMIN) |
+| `PUT /backoffice/staff/:id/tenant-access` | Set platform admin merchant access (SUPER_ADMIN) |
 
 After seed:
 
 ```bash
 npx prisma db seed
-# platform operator: platform@example.com / Platform123!
-# acme tenant admin:  admin@acme.example.com / Acme123!
+# platform super-user: super@example.com / Super123!       (SUPER_ADMIN)
+# platform operator:  platform@example.com / Platform123!  (PLATFORM_ADMIN)
+# acme tenant admin:  admin@acme.example.com / Acme123!    (OPERATOR_ADMIN)
 ```
 
 ```bash
 curl -s -X POST http://localhost:3001/api/v1/backoffice/auth/login \
   -H 'Content-Type: application/json' \
   -d '{"email":"platform@example.com","password":"Platform123!"}'
+```
+
+### Back office UI (Phase 6.9)
+
+Operator portal lives in the sibling repo **[sports-betting-backoffice](../sports-betting-backoffice)** (port `3002`). Add `http://localhost:3002` to `CORS_ORIGINS` in `.env` for local browser access.
+
+```bash
+cd ../sports-betting-backoffice && pnpm dev
 ```
 
 ### Hardening (Phase 5)

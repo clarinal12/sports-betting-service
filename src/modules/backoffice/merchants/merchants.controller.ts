@@ -6,6 +6,7 @@ import { CurrentStaff } from '../staff/current-staff.decorator';
 import type { StaffContext } from '../staff/staff-context.types';
 import { MerchantsService } from './merchants.service';
 import { CreateMerchantDto } from './dto/create-merchant.dto';
+import { assertPlatformStaff } from '../staff/staff-scope.util';
 
 @ApiTags('backoffice-merchants')
 @Controller('backoffice/merchants')
@@ -20,6 +21,7 @@ export class MerchantsController {
     @CurrentStaff() staff: StaffContext,
     @Body() body: CreateMerchantDto,
   ) {
-    return this.merchants.createMerchant(body, staff.staffUserId);
+    assertPlatformStaff(staff);
+    return this.merchants.createMerchant(body, staff);
   }
 }

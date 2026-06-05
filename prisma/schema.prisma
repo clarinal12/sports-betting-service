@@ -78,6 +78,8 @@ enum StaffUserStatus {
 }
 
 enum StaffRole {
+  SUPER_ADMIN
+  PLATFORM_ADMIN
   OPERATOR_ADMIN
   TRADER
   RISK_MANAGER
@@ -105,6 +107,7 @@ model CasinoGroup {
 
   leagues         CasinoGroupLeague[]
   staffUsers      StaffUser[]
+  staffAccess     StaffCasinoGroupAccess[]
   offeringPolicy  OfferingPolicy?
   riskLimits      RiskLimit[]
 
@@ -370,11 +373,25 @@ model StaffUser {
   createdAt     DateTime        @default(now())
   updatedAt     DateTime        @updatedAt
 
-  casinoGroup CasinoGroup?   @relation(fields: [casinoGroupId], references: [id], onDelete: SetNull)
-  sessions    StaffSession[]
+  casinoGroup   CasinoGroup?             @relation(fields: [casinoGroupId], references: [id], onDelete: SetNull)
+  sessions      StaffSession[]
+  tenantAccess  StaffCasinoGroupAccess[]
 
   @@index([casinoGroupId])
   @@map("staff_users")
+}
+
+/// SUPER_ADMIN grants: which casino groups a PLATFORM_ADMIN may access.
+model StaffCasinoGroupAccess {
+  staffUserId   String
+  casinoGroupId String
+  createdAt     DateTime @default(now())
+
+  staffUser   StaffUser   @relation(fields: [staffUserId], references: [id], onDelete: Cascade)
+  casinoGroup CasinoGroup @relation(fields: [casinoGroupId], references: [id], onDelete: Cascade)
+
+  @@id([staffUserId, casinoGroupId])
+  @@map("staff_casino_group_access")
 }
 
 /// Refresh-token session for staff (separate from player session JWT).
