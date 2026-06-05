@@ -281,7 +281,7 @@ curl -H "X-Casino-Group: acme" http://localhost:3001/api/v1/sports
 curl -H "X-Casino-Group: betzone" "http://localhost:3001/api/v1/fixtures?pageSize=5"
 ```
 
-### Back office (Phase 6.1–6.3)
+### Back office (Phase 6)
 
 Staff APIs under `/api/v1/backoffice` (separate JWT from player sessions).
 
@@ -294,6 +294,17 @@ Staff APIs under `/api/v1/backoffice` (separate JWT from player sessions).
 | `GET/PATCH /backoffice/tenant` | Casino group settings (`?casinoGroupId=` for platform staff) |
 | `GET/PUT /backoffice/product/leagues` | Enable/disable leagues per tenant |
 | `POST /backoffice/merchants` | Create merchant (`tenant.create`) — returns `sportsSecret` once |
+| `GET /backoffice/trading/exposure` | Open liability by event |
+| `GET/PATCH /backoffice/trading/limits` | Global stake/payout caps |
+| `POST /backoffice/trading/events/:id/suspend` | Suspend event + markets |
+| `POST /backoffice/trading/markets/:id/suspend` | Suspend market |
+| `POST /backoffice/trading/markets/:id/resume` | Resume market |
+| `GET /backoffice/bets` | Bet monitor (`?userId=&status=`) |
+| `GET /backoffice/bets/:id` | Bet detail |
+| `POST /backoffice/bets/:id/void` | Void ACCEPTED bet + refund stake |
+| `GET /backoffice/settlement/events` | Unsettled events with open bets |
+| `GET /backoffice/analytics/summary` | Bet counts + simple GGR |
+| `GET /backoffice/compliance/audit` | Search audit log |
 
 After seed:
 

@@ -7,18 +7,62 @@ export const STAFF_PERMISSIONS = [
   'product.leagues.read',
   'product.leagues.update',
   'staff.read',
+  'trading.read',
+  'trading.suspend',
+  'trading.limits.read',
+  'trading.limits.update',
+  'bets.read',
+  'bets.void',
+  'settlement.read',
+  'analytics.read',
+  'compliance.audit.read',
 ] as const;
 
 export type StaffPermission = (typeof STAFF_PERMISSIONS)[number];
 
 const ROLE_PERMISSIONS: Record<StaffRole, StaffPermission[]> = {
   OPERATOR_ADMIN: [...STAFF_PERMISSIONS],
-  TRADER: ['tenant.read', 'product.leagues.read', 'product.leagues.update'],
-  RISK_MANAGER: ['tenant.read', 'product.leagues.read'],
-  CUSTOMER_SUPPORT: ['tenant.read', 'product.leagues.read'],
-  SETTLEMENT: ['tenant.read', 'product.leagues.read'],
-  FINANCE: ['tenant.read', 'product.leagues.read'],
-  COMPLIANCE: ['tenant.read', 'staff.read'],
+  TRADER: [
+    'tenant.read',
+    'product.leagues.read',
+    'product.leagues.update',
+    'trading.read',
+    'trading.suspend',
+    'trading.limits.read',
+    'bets.read',
+    'settlement.read',
+  ],
+  RISK_MANAGER: [
+    'tenant.read',
+    'product.leagues.read',
+    'trading.read',
+    'trading.limits.read',
+    'trading.limits.update',
+    'bets.read',
+    'analytics.read',
+  ],
+  CUSTOMER_SUPPORT: [
+    'tenant.read',
+    'product.leagues.read',
+    'bets.read',
+    'bets.void',
+    'compliance.audit.read',
+  ],
+  SETTLEMENT: [
+    'tenant.read',
+    'product.leagues.read',
+    'bets.read',
+    'settlement.read',
+    'compliance.audit.read',
+  ],
+  FINANCE: [
+    'tenant.read',
+    'product.leagues.read',
+    'bets.read',
+    'analytics.read',
+    'compliance.audit.read',
+  ],
+  COMPLIANCE: ['tenant.read', 'staff.read', 'compliance.audit.read', 'bets.read'],
 };
 
 export function permissionsForRoles(roles: StaffRole[]): StaffPermission[] {

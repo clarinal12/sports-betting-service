@@ -64,15 +64,20 @@ export class MerchantsService {
           data: { casinoGroupId: created.id, rules: { enabledLeagueKeys: offeredKeys } },
         });
 
-        await tx.riskLimit.create({
-          data: {
+        await tx.riskLimit.upsert({
+          where: {
+            casinoGroupId_scope_scopeRef: {
+              casinoGroupId: created.id,
+              scope: 'GLOBAL',
+              scopeRef: '',
+            },
+          },
+          create: {
             casinoGroupId: created.id,
             scope: 'GLOBAL',
-            scopeRef: null,
-            minStake: null,
-            maxStake: null,
-            maxPayout: null,
+            scopeRef: '',
           },
+          update: {},
         });
 
         return created;

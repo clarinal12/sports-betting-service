@@ -110,4 +110,33 @@ describe('Back office (e2e)', () => {
     );
     expect(nba?.enabled).toBe(true);
   });
+
+  it('returns trading exposure and staff bet list for acme', async () => {
+    const acme = await prisma.casinoGroup.findUniqueOrThrow({
+      where: { slug: 'acme' },
+    });
+
+    const login = await request(app.getHttpServer())
+      .post('/api/v1/backoffice/auth/login')
+      .send({ email: 'bo-e2e@example.com', password: 'BoE2e123!' })
+      .expect(201);
+
+    const token = login.body.accessToken as string;
+
+    await request(app.getHttpServer())
+      .get(`/api/v1/backoffice/trading/exposure?casinoGroupId=${acme.id}`)
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200)
+      .expect((res) => {
+        expect(res.body).toHaveProperty('openBetCount');
+      });
+
+    await request(app.getHttpServer())
+      .get(`/api/v1/backoffice/bets?casinoGroupId=${acme.id}&limit=5`)
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200)
+      .expect((res) => {
+        expect(Array.isArray(res.body)).toBe(true);
+      });
+  });
 });

@@ -40,7 +40,7 @@ Locked choices for the first implementation phases. Update this file when decisi
 |-------|----------|-------|
 | Bet leg snapshot | **Freeze `marketType`, `marketLine`, team names, `eventProviderRef` on `BetLeg` at placement** | Settlement grades from snapshot + live scores/market status; legacy legs without snapshot fall back to current `Selection`/`Market` join |
 
-## Phase 6 decisions (partial — 6.1–6.3)
+## Phase 6 decisions (6.1–6.8 API)
 
 | Topic | Decision | Notes |
 |-------|----------|-------|
@@ -48,6 +48,9 @@ Locked choices for the first implementation phases. Update this file when decisi
 | RBAC | **Role → permission map** (`OPERATOR_ADMIN`, `TRADER`, …) | `@RequirePermission()` on routes |
 | Merchant onboarding | **`POST /backoffice/merchants`** encrypts `sportsSecret`, enables leagues, audits | Plaintext secret returned once in response |
 | Platform vs tenant staff | **`casinoGroupId` null** = cross-tenant platform operator | Tenant staff scoped to one group |
+| Trading | **Suspend event/market via DB status + audit** | Resume market when event not ENDED |
+| Bet void | **Staff `POST …/void` refunds stake, sets VOID** | ACCEPTED only; audited |
+| Analytics MVP | **On-demand `groupBy` on bets** | Daily rollups deferred |
 
 ## Phase 5 decisions
 
