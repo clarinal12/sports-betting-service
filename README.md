@@ -88,7 +88,7 @@ Set `FIXTURE_PROVIDER=odds-api` and `ODDS_API_KEY` in `.env` to pull live data f
 |----------|---------|---------|
 | `FIXTURE_PROVIDER` | `mock` | `mock` or `odds-api` |
 | `ODDS_API_KEY` | — | Required when provider is `odds-api` |
-| `ODDS_API_SPORT_KEYS` | `basketball,baseball,americanfootball,soccer` | Group aliases or `all` |
+| `ODDS_API_SPORT_KEYS` | `basketball_nba` | Group aliases or `all` |
 | `ODDS_API_REGIONS` | `all` | `all` → us, us2, uk, eu, au; or comma-separated subset |
 | `ODDS_API_MARKETS` | `h2h,spreads,totals` | Upstream market keys |
 | `INGEST_LIVE_ENABLED` | `false` | In-process live ingest scheduler |
@@ -99,9 +99,8 @@ Set `FIXTURE_PROVIDER=odds-api` and `ODDS_API_KEY` in `.env` to pull live data f
 | `INGEST_ODDS_API_REMAINING_MIN` | `20` | Pause scheduler when quota below this |
 | `INGEST_ODDS_API_PAUSE_MINUTES` | `30` | Pause duration after low quota or 401 |
 
-`all` ingests every **active game sport** from `/sports`. Tenant offerings: **acme**
-gets basketball, baseball, american football, and soccer (all leagues, all regions);
-**betzone** gets basketball only.
+`all` ingests every **active game sport** from `/sports`. Demo tenant offerings:
+**acme** and **betzone** both expose **NBA only** (`basketball_nba`).
 
 After switching from mock, run `npm run db:reset` once to drop stale data and
 reload from The Odds API.
@@ -220,6 +219,12 @@ Decimal odds are returned as **strings** (e.g. `"1.95"`) to preserve precision.
 
 Local dev uses `WALLET_PROVIDER=stub` (default balance `WALLET_STUB_BALANCE`). Production integrates `POST /wallet/reserve` on the user service when `WALLET_PROVIDER=http`. Failed wallet debits are retried via the wallet outbox worker (`WALLET_OUTBOX_POLL_SECONDS`).
 
+#### Bet leg snapshot (at placement)
+
+Each accepted leg stores a **frozen copy** of what the player bet on: `marketType`, `marketLine` (handicap/totals), `homeTeamName`, `awayTeamName`, and `eventProviderRef`. These are written automatically on `POST /api/v1/bets` and returned on `GET /api/v1/bets` / `GET /api/v1/bets/:id`.
+
+Settlement uses the snapshot for **grading rules** (which market type, which team names, which line) while still reading **live** `Event` scores and `Market` status from the DB after results ingest. That way a later catalog rename or selection delete does not change how an old bet is settled. Bets placed before this migration have null snapshot fields and fall back to the current selection/market join.
+
 ### Settlement (Phase 4.5)
 
 When all legs are on **ENDED** events with **SETTLED** (or **VOID**) markets, accepted bets are graded and wallet credits are applied:
@@ -256,7 +261,7 @@ npm run result:manual -- --event <eventProviderRef> --home 3 --away 2
 npm run settle   # optional if not using ingest:results
 ```
 
-Find `eventProviderRef` in Prisma Studio (`events.providerRef`) or bet leg event links.
+Find `eventProviderRef` on the bet leg (`legs[].eventProviderRef`) or in Prisma Studio (`events.providerRef`).
 
 #### Settle only
 
@@ -275,6 +280,17 @@ request. Event/market IDs are chained automatically, so no copy-pasting IDs.
 curl -H "X-Casino-Group: acme" http://localhost:3001/api/v1/sports
 curl -H "X-Casino-Group: betzone" "http://localhost:3001/api/v1/fixtures?pageSize=5"
 ```
+
+### Hardening (Phase 5)
+
+| Endpoint / doc | Purpose |
+|----------------|---------|
+| `GET /metrics` | Prometheus scrape (`METRICS_ENABLED=true`) |
+| [docs/RUNBOOKS.md](docs/RUNBOOKS.md) | Upstream outage, stale odds, suspend market |
+| `npm run test:integration` | Postgres + audit smoke (Testcontainers, Docker required) |
+| `npm run load:realtime -- --token <sessionJWT> --clients 50` | WS connection smoke test |
+
+Apply migration: `npx prisma migrate deploy` (includes `audit_log_entries`).
 
 MVP decisions: [docs/DECISIONS.md](docs/DECISIONS.md). Full design: [docs/DESIGN.md](docs/DESIGN.md).
 

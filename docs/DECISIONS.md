@@ -34,6 +34,22 @@ Locked choices for the first implementation phases. Update this file when decisi
 | Per-group market rules (FR-M4) | **Deferred** | All market types exposed to every group for now |
 | Event/market scoping | **Via fixture → league → enabled group** | Cross-tenant access returns 404 |
 
+## Phase 4 decisions
+
+| Topic | Decision | Notes |
+|-------|----------|-------|
+| Bet leg snapshot | **Freeze `marketType`, `marketLine`, team names, `eventProviderRef` on `BetLeg` at placement** | Settlement grades from snapshot + live scores/market status; legacy legs without snapshot fall back to current `Selection`/`Market` join |
+
+## Phase 5 decisions
+
+| Topic | Decision | Notes |
+|-------|----------|-------|
+| Metrics | **Prometheus via `prom-client` on `GET /metrics`** | `METRICS_ENABLED`; default Node/process metrics prefixed `sbs_` |
+| Tracing | **OpenTelemetry deferred** | Add when exporting to a shared observability stack |
+| Audit log | **`audit_log_entries` append-only table + `AuditService`** | System actor on ingestion offering sync; staff actor in Phase 6 |
+| Integration tests | **Optional `npm run test:integration` with Testcontainers Postgres** | Gated by `INTEGRATION_TEST=1` |
+| Runbooks | **`docs/RUNBOOKS.md`** | Upstream outage, stale odds, market suspend |
+
 ## Environment
 
 Copy `.env.example` to `.env` and start infrastructure:

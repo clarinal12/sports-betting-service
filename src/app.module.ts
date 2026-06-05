@@ -19,10 +19,14 @@ import { MarketsModule } from './modules/markets/markets.module';
 import { RealtimeModule } from './modules/realtime/realtime.module';
 import { BetsModule } from './modules/bets/bets.module';
 import { SettlementModule } from './modules/settlement/settlement.module';
+import { AuditModule } from './shared/audit/audit.module';
+import { MetricsModule } from './shared/metrics/metrics.module';
 
 @Module({
   imports: [
     AppConfigModule,
+    MetricsModule,
+    AuditModule,
     LoggerModule.forRoot({
       pinoHttp: {
         level: process.env.LOG_LEVEL ?? 'info',

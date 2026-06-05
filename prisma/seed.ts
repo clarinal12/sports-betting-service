@@ -23,8 +23,7 @@ const DEMO_MERCHANTS = {
 
 /**
  * Demo data for local development (Odds API ingest + tenant league scoping):
- *  - acme: basketball, baseball, american football, soccer (all leagues/regions)
- *  - betzone: basketball only (all leagues/regions)
+ *  - acme & betzone: NBA only (`basketball_nba`)
  */
 async function seed(): Promise<void> {
   const logger = new Logger('Seed');

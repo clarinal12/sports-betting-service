@@ -60,12 +60,28 @@ describe('Settlement (e2e)', () => {
           event: { providerRef: 'evt_mock_nba_5' },
         },
       },
-      include: { market: true },
+      include: {
+        market: {
+          include: {
+            event: {
+              include: {
+                fixture: {
+                  include: {
+                    homeTeam: true,
+                    awayTeam: true,
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
     });
     if (!selection) {
       throw new Error('Ended mock NBA selection not found');
     }
 
+    const event = selection.market.event;
     const bet = await prisma.bet.create({
       data: {
         casinoGroupId: group.id,
@@ -85,6 +101,11 @@ describe('Settlement (e2e)', () => {
             selectionName: selection.name,
             priceAtPlacement: selection.price,
             legOrder: 0,
+            marketType: selection.market.type,
+            marketLine: selection.market.line,
+            homeTeamName: event.fixture.homeTeam.name,
+            awayTeamName: event.fixture.awayTeam.name,
+            eventProviderRef: event.providerRef,
           },
         },
       },

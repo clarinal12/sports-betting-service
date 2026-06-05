@@ -275,6 +275,12 @@ model BetLeg {
   priceAtPlacement   Decimal       @db.Decimal(10, 3)
   legOrder           Int
   outcome            BetLegOutcome @default(PENDING)
+  /// Frozen at placement — used for settlement grading (FR-B snapshot).
+  marketType         MarketType?
+  marketLine         Decimal?      @db.Decimal(6, 2)
+  homeTeamName       String?
+  awayTeamName       String?
+  eventProviderRef   String?
 
   bet       Bet       @relation(fields: [betId], references: [id], onDelete: Cascade)
   selection Selection @relation(fields: [selectionId], references: [id])
@@ -313,4 +319,23 @@ model OddsSnapshot {
 
   @@index([selectionId, capturedAt])
   @@map("odds_snapshots")
+}
+
+/// Append-only audit trail for tenant/offering changes (Phase 5 — back office prep).
+model AuditLogEntry {
+  id            String   @id @default(cuid())
+  actorType     String
+  actorId       String?
+  casinoGroupId String?
+  action        String
+  entityType    String
+  entityId      String?
+  before        Json?
+  after         Json?
+  reason        String?
+  createdAt     DateTime @default(now())
+
+  @@index([casinoGroupId, createdAt(sort: Desc)])
+  @@index([entityType, entityId])
+  @@map("audit_log_entries")
 }

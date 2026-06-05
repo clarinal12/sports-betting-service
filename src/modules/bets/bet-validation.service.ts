@@ -10,6 +10,7 @@ import {
   Prisma,
   SelectionStatus,
 } from '@prisma/client';
+import type { LegPlacementSnapshot } from './bet-leg-snapshot';
 import { EnvConfig } from '../../shared/config/env.validation';
 import { PrismaService } from '../../shared/database/prisma.service';
 import {
@@ -23,6 +24,7 @@ export interface ValidatedLeg {
   eventId: string;
   selectionName: string;
   price: Prisma.Decimal;
+  snapshot: LegPlacementSnapshot;
 }
 
 export interface ValidatedBetQuote {
@@ -72,14 +74,19 @@ export class BetValidationService {
         market: {
           select: {
             id: true,
+            type: true,
+            line: true,
             status: true,
             eventId: true,
             event: {
               select: {
                 id: true,
                 status: true,
+                providerRef: true,
                 fixture: {
                   select: {
+                    homeTeam: { select: { name: true } },
+                    awayTeam: { select: { name: true } },
                     league: {
                       select: {
                         groups: {
@@ -135,6 +142,13 @@ export class BetValidationService {
         eventId: market.eventId,
         selectionName: selection.name,
         price: selection.price,
+        snapshot: {
+          marketType: market.type,
+          marketLine: market.line ? market.line.toFixed(2) : null,
+          homeTeamName: market.event.fixture.homeTeam.name,
+          awayTeamName: market.event.fixture.awayTeam.name,
+          eventProviderRef: market.event.providerRef,
+        },
       });
     }
 

@@ -17,3 +17,4 @@ process.env.INGEST_CATALOG_ENABLED = 'false';
 process.env.RESULTS_INGEST_ENABLED = 'false';
 process.env.SETTLEMENT_ENABLED = 'false';
 process.env.WALLET_PROVIDER = 'stub';
+process.env.METRICS_ENABLED = 'false';

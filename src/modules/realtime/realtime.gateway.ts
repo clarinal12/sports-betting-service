@@ -26,6 +26,7 @@ import {
 import { eventRoom, marketRoom } from './realtime-rooms';
 import { RealtimeAccessService } from './realtime-access.service';
 import { socketIoCorsOptions } from '../../shared/cors/cors.config';
+import { MetricsService } from '../../shared/metrics/metrics.service';
 
 interface SocketData {
   user: UserContext;
@@ -55,6 +56,7 @@ export class RealtimeGateway
     private readonly sessions: SessionService,
     private readonly casinoGroups: CasinoGroupsService,
     private readonly access: RealtimeAccessService,
+    private readonly metrics: MetricsService,
     config: ConfigService<EnvConfig, true>,
   ) {
     const max = config.get('REALTIME_SUBSCRIBE_MAX_PER_MINUTE', {
@@ -84,13 +86,16 @@ export class RealtimeGateway
         casinoGroupId: user.casinoGroupId,
         userId: user.userId,
       });
+      this.metrics.wsConnected();
     } catch {
       this.reject(client, 'Invalid or expired session');
     }
   }
 
-  handleDisconnect(): void {
-    // Rooms are cleared automatically on disconnect.
+  handleDisconnect(client: Socket): void {
+    if ((client.data as Partial<SocketData>).user) {
+      this.metrics.wsDisconnected();
+    }
   }
 
   @SubscribeMessage(WS_CLIENT_SUBSCRIBE)

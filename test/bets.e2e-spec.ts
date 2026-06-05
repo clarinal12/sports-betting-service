@@ -148,6 +148,10 @@ describe('Bets (e2e)', () => {
     expect(first.body.status).toBe('ACCEPTED');
     expect(first.body.stake).toBe('5');
     expect(first.body.legs).toHaveLength(1);
+    expect(first.body.legs[0].marketType).toBeTruthy();
+    expect(first.body.legs[0].homeTeamName).toBeTruthy();
+    expect(first.body.legs[0].awayTeamName).toBeTruthy();
+    expect(first.body.legs[0].eventProviderRef).toBeTruthy();
 
     const second = await request(app.getHttpServer())
       .post('/api/v1/bets')

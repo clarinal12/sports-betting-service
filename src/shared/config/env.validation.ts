@@ -26,6 +26,12 @@ export const envSchema = z.object({
     .enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent'])
     .default('info'),
 
+  // --- Observability (Phase 5) ---
+  METRICS_ENABLED: z
+    .enum(['true', 'false'])
+    .default('true')
+    .transform((value) => value === 'true'),
+
   // --- Auth (Phase 3a) ---
   /// Secret used to sign/verify OUR short-lived player session tokens.
   SESSION_JWT_SECRET: z.string().min(16).default(DEV_SESSION_SECRET),

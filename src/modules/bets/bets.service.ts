@@ -9,12 +9,14 @@ import {
 import { BetStatus, WalletOutboxStatus } from '@prisma/client';
 import { UserContext } from '../auth/user-context.types';
 import { PrismaService } from '../../shared/database/prisma.service';
+import { MetricsService } from '../../shared/metrics/metrics.service';
 import { stakeLessOrEqualBalance } from '../../shared/decimal/bet-math';
 import {
   WALLET_PORT,
   WalletReserveError,
 } from '../wallet/wallet.port';
 import type { WalletPort } from '../wallet/wallet.port';
+import { legSnapshotCreateData } from './bet-leg-snapshot';
 import { BetValidationService } from './bet-validation.service';
 import { toBetDto } from './bet.mapper';
 import { BetResponseDto } from './dto/bet-response.dto';
@@ -29,6 +31,7 @@ export class BetsService {
     private readonly prisma: PrismaService,
     private readonly validation: BetValidationService,
     @Inject(WALLET_PORT) private readonly wallet: WalletPort,
+    private readonly metrics: MetricsService,
   ) {}
 
   async placeBet(
@@ -50,8 +53,11 @@ export class BetsService {
 
     if (existing) {
       if (existing.status === BetStatus.PENDING) {
-        return toBetDto(await this.retryPendingBet(existing.id));
+        const retried = await this.retryPendingBet(existing.id);
+        this.metrics.recordBetPlaced(retried.status);
+        return toBetDto(retried);
       }
+      this.metrics.recordBetPlaced(existing.status);
       return toBetDto(existing);
     }
 
@@ -90,6 +96,7 @@ export class BetsService {
             selectionName: leg.selectionName,
             priceAtPlacement: leg.price,
             legOrder: index,
+            ...legSnapshotCreateData(leg.snapshot),
           })),
         },
       },
@@ -112,7 +119,9 @@ export class BetsService {
       },
     });
 
-    return toBetDto(await this.attemptWalletReserve(bet.id));
+    const placed = await this.attemptWalletReserve(bet.id);
+    this.metrics.recordBetPlaced(placed.status);
+    return toBetDto(placed);
   }
 
   async listForUser(

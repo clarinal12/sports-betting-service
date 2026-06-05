@@ -140,12 +140,7 @@ describe('Player API tenant scoping (e2e)', () => {
     const acmeKeys = (acme.body as { key: string }[]).map((s) => s.key).sort();
     const betzoneKeys = (betzone.body as { key: string }[]).map((s) => s.key);
 
-    expect(acmeKeys).toEqual([
-      'americanfootball',
-      'baseball',
-      'basketball',
-      'soccer',
-    ]);
+    expect(acmeKeys).toEqual(['basketball']);
     expect(betzoneKeys).toEqual(['basketball']);
   });
 

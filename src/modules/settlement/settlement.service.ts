@@ -1,5 +1,6 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import {
+  BetLeg,
   BetLegOutcome,
   BetStatus,
   EventStatus,
@@ -8,6 +9,12 @@ import {
 } from '@prisma/client';
 import { PrismaService } from '../../shared/database/prisma.service';
 import { decimalToString } from '../../shared/decimal/decimal.util';
+import { MetricsService } from '../../shared/metrics/metrics.service';
+import {
+  buildLegSettlementInput,
+  hasLegSnapshot,
+  type LegPlacementSnapshot,
+} from '../bets/bet-leg-snapshot';
 import { WALLET_PORT } from '../wallet/wallet.port';
 import type { WalletPort } from '../wallet/wallet.port';
 import { LegOutcomeService, LegResult } from './leg-outcome.service';
@@ -22,6 +29,7 @@ export class SettlementService {
     private readonly prisma: PrismaService,
     private readonly legOutcome: LegOutcomeService,
     @Inject(WALLET_PORT) private readonly wallet: WalletPort,
+    private readonly metrics: MetricsService,
   ) {}
 
   async logWhyAcceptedBetsAreUnsettled(limit = 10): Promise<void> {
@@ -40,7 +48,7 @@ export class SettlementService {
       for (const leg of bet.legs) {
         const ctx = await this.loadLegContext(leg);
         if (!ctx) {
-          blockers.push(`leg ${leg.selectionName}: selection not found`);
+          blockers.push(`leg ${leg.selectionName}: event/market not found`);
           continue;
         }
         if (ctx.eventStatus !== EventStatus.ENDED) {
@@ -170,6 +178,7 @@ export class SettlementService {
       });
     });
 
+    this.metrics.recordBetSettled(betResult);
     this.logger.log(
       `Settled bet ${bet.id} as ${betResult} (payout ${decimalToString(payoutAmount)})`,
     );
@@ -204,43 +213,57 @@ export class SettlementService {
     return result as BetLegOutcome;
   }
 
-  private async loadLegContext(leg: {
-    selectionName: string;
-    selectionId: string;
-    marketId: string;
-    eventId: string;
-  }) {
-    const selection = await this.prisma.selection.findUnique({
-      where: { id: leg.selectionId },
-      select: {
-        market: {
-          select: {
-            type: true,
-            status: true,
-            line: true,
-            event: {
-              select: {
-                id: true,
-                status: true,
-                homeScore: true,
-                awayScore: true,
-                fixture: {
-                  select: {
-                    homeTeam: { select: { name: true } },
-                    awayTeam: { select: { name: true } },
-                  },
-                },
-              },
+  private async loadLegContext(leg: BetLeg) {
+    const [event, market] = await Promise.all([
+      this.prisma.event.findUnique({
+        where: { id: leg.eventId },
+        select: {
+          status: true,
+          homeScore: true,
+          awayScore: true,
+          providerRef: true,
+          fixture: {
+            select: {
+              homeTeam: { select: { name: true } },
+              awayTeam: { select: { name: true } },
             },
           },
         },
-      },
+      }),
+      this.prisma.market.findUnique({
+        where: { id: leg.marketId },
+        select: { status: true, type: true, line: true },
+      }),
+    ]);
+    if (!event || !market) {
+      return null;
+    }
+
+    if (hasLegSnapshot(leg)) {
+      const snapshot: LegPlacementSnapshot = {
+        marketType: leg.marketType!,
+        marketLine: leg.marketLine ? leg.marketLine.toFixed(2) : null,
+        homeTeamName: leg.homeTeamName!,
+        awayTeamName: leg.awayTeamName!,
+        eventProviderRef: leg.eventProviderRef ?? event.providerRef,
+      };
+      const grade = buildLegSettlementInput(leg, snapshot, {
+        marketStatus: market.status,
+        eventStatus: event.status,
+        homeScore: event.homeScore,
+        awayScore: event.awayScore,
+      });
+      return { ...grade, eventStatus: event.status };
+    }
+
+    const selection = await this.prisma.selection.findUnique({
+      where: { id: leg.selectionId },
+      select: { id: true },
     });
     if (!selection) {
       return null;
     }
-    const { market } = selection;
-    const { event } = market;
+
     return {
       marketType: market.type,
       marketStatus: market.status,

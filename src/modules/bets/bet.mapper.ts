@@ -33,5 +33,11 @@ function toBetLegDto(leg: BetLeg): BetLegResponseDto {
     selectionName: leg.selectionName,
     priceAtPlacement: decimalToString(leg.priceAtPlacement),
     outcome: leg.outcome,
+    marketType: leg.marketType,
+    marketLine:
+      leg.marketLine !== null ? decimalToString(leg.marketLine) : null,
+    homeTeamName: leg.homeTeamName,
+    awayTeamName: leg.awayTeamName,
+    eventProviderRef: leg.eventProviderRef,
   };
 }

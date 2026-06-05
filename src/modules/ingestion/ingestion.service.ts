@@ -16,7 +16,9 @@ import {
   ACME_INGEST_SPORT_KEYS,
   isLeagueOffered,
 } from '../casino-groups/tenant-offering.config';
+import { AuditService } from '../../shared/audit/audit.service';
 import { PrismaService } from '../../shared/database/prisma.service';
+import { MetricsService } from '../../shared/metrics/metrics.service';
 import { RealtimePubSubService } from '../realtime/realtime-pubsub.service';
 import {
   FIXTURE_PROVIDER,
@@ -94,6 +96,8 @@ export class IngestionService {
     @Inject(FIXTURE_PROVIDER) private readonly provider: FixtureProviderPort,
     private readonly config: ConfigService<EnvConfig, true>,
     private readonly realtime: RealtimePubSubService,
+    private readonly metrics: MetricsService,
+    private readonly audit: AuditService,
   ) {}
 
   /**
@@ -102,17 +106,19 @@ export class IngestionService {
    * idempotent. Records an OddsSnapshot whenever a selection price changes.
    */
   async ingestFixtures(): Promise<IngestionSummary> {
-    const snapshot = await this.provider.fetchSnapshot();
-    await this.upsertCatalogFromSnapshot(snapshot);
-    await this.syncAcmeTenantLeagues();
-    await this.syncBetzoneTenantLeagues();
-    const fixtureCount = await this.upsertFixturesFromSnapshot(snapshot, {
-      purgeStale: true,
+    return this.runIngestion('catalog', async () => {
+      const snapshot = await this.provider.fetchSnapshot();
+      await this.upsertCatalogFromSnapshot(snapshot);
+      await this.syncTenantLeagues('acme', ACME_LEAGUE_PREFIXES);
+      await this.syncTenantLeagues('betzone', BETZONE_LEAGUE_PREFIXES);
+      const fixtureCount = await this.upsertFixturesFromSnapshot(snapshot, {
+        purgeStale: true,
+      });
+      const live = await this.ingestLiveData(snapshot);
+      const summary = this.buildSummary(snapshot, fixtureCount, live);
+      this.logIngestion('Catalog ingest', summary);
+      return summary;
     });
-    const live = await this.ingestLiveData(snapshot);
-    const summary = this.buildSummary(snapshot, fixtureCount, live);
-    this.logIngestion('Catalog ingest', summary);
-    return summary;
   }
 
   /**
@@ -120,48 +126,50 @@ export class IngestionService {
    * Does not refresh the full catalog or purge fixtures when the snapshot is empty.
    */
   async ingestLiveTick(): Promise<LiveIngestionSummary> {
-    const prestartMinutes = this.config.get('INGEST_LIVE_PRESTART_MINUTES', {
-      infer: true,
-    });
-    const sportKeys = await resolveLiveSportKeys(this.prisma, prestartMinutes);
+    return this.runIngestion('live', async () => {
+      const prestartMinutes = this.config.get('INGEST_LIVE_PRESTART_MINUTES', {
+        infer: true,
+      });
+      const sportKeys = await resolveLiveSportKeys(this.prisma, prestartMinutes);
 
-    if (sportKeys.length === 0) {
-      this.logger.log(
-        'Live ingest skipped: no LIVE or imminently starting fixtures in DB',
-      );
-      return {
-        sportKeys: [],
-        skipped: true,
-        sports: 0,
-        leagues: 0,
-        teams: 0,
-        fixtures: 0,
-        events: 0,
-        markets: 0,
-        selections: 0,
-        oddsSnapshots: 0,
+      if (sportKeys.length === 0) {
+        this.logger.log(
+          'Live ingest skipped: no LIVE or imminently starting fixtures in DB',
+        );
+        return {
+          sportKeys: [],
+          skipped: true,
+          sports: 0,
+          leagues: 0,
+          teams: 0,
+          fixtures: 0,
+          events: 0,
+          markets: 0,
+          selections: 0,
+          oddsSnapshots: 0,
+        };
+      }
+
+      if (!this.provider.fetchLiveSnapshot) {
+        throw new Error(
+          'Live ingest is not supported for the current FIXTURE_PROVIDER',
+        );
+      }
+
+      const snapshot = await this.provider.fetchLiveSnapshot({ sportKeys });
+      await this.upsertCatalogFromSnapshot(snapshot);
+      const fixtureCount = await this.upsertFixturesFromSnapshot(snapshot, {
+        purgeStale: false,
+      });
+      const live = await this.ingestLiveData(snapshot);
+      const summary: LiveIngestionSummary = {
+        ...this.buildSummary(snapshot, fixtureCount, live),
+        sportKeys,
+        skipped: false,
       };
-    }
-
-    if (!this.provider.fetchLiveSnapshot) {
-      throw new Error(
-        'Live ingest is not supported for the current FIXTURE_PROVIDER',
-      );
-    }
-
-    const snapshot = await this.provider.fetchLiveSnapshot({ sportKeys });
-    await this.upsertCatalogFromSnapshot(snapshot);
-    const fixtureCount = await this.upsertFixturesFromSnapshot(snapshot, {
-      purgeStale: false,
+      this.logIngestion('Live tick', summary, sportKeys);
+      return summary;
     });
-    const live = await this.ingestLiveData(snapshot);
-    const summary: LiveIngestionSummary = {
-      ...this.buildSummary(snapshot, fixtureCount, live),
-      sportKeys,
-      skipped: false,
-    };
-    this.logIngestion('Live tick', summary, sportKeys);
-    return summary;
   }
 
   /**
@@ -592,46 +600,39 @@ export class IngestionService {
     });
   }
 
-  /** Acme: basketball, baseball, american football, soccer — all leagues/regions. */
-  private async syncAcmeTenantLeagues(): Promise<void> {
-    const acme = await this.prisma.casinoGroup.findUnique({
-      where: { slug: 'acme' },
-      select: { id: true },
-    });
-    if (!acme) {
-      return;
-    }
-
-    const leagues = await this.prisma.league.findMany({
-      select: { id: true, key: true },
-    });
-
-    for (const league of leagues) {
-      const enabled = isLeagueOffered(league.key, ACME_LEAGUE_PREFIXES);
-      await this.prisma.casinoGroupLeague.upsert({
-        where: {
-          casinoGroupId_leagueId: {
-            casinoGroupId: acme.id,
-            leagueId: league.id,
-          },
-        },
-        create: {
-          casinoGroupId: acme.id,
-          leagueId: league.id,
-          enabled,
-        },
-        update: { enabled },
-      });
+  private async runIngestion<T>(
+    kind: string,
+    fn: () => Promise<T>,
+  ): Promise<T> {
+    const started = process.hrtime.bigint();
+    try {
+      const result = await fn();
+      this.metrics.recordIngestion(
+        kind,
+        'success',
+        this.elapsedSeconds(started),
+      );
+      return result;
+    } catch (error) {
+      this.metrics.recordIngestion(kind, 'error', this.elapsedSeconds(started));
+      throw error;
     }
   }
 
-  /** BetZone: basketball_* leagues only — all regions at ingest. */
-  private async syncBetzoneTenantLeagues(): Promise<void> {
-    const betzone = await this.prisma.casinoGroup.findUnique({
-      where: { slug: 'betzone' },
+  private elapsedSeconds(started: bigint): number {
+    return Number(process.hrtime.bigint() - started) / 1e9;
+  }
+
+  /** Sync demo tenant league enablement; audit when `enabled` changes. */
+  private async syncTenantLeagues(
+    slug: string,
+    offeredLeagueKeys: readonly string[],
+  ): Promise<void> {
+    const group = await this.prisma.casinoGroup.findUnique({
+      where: { slug },
       select: { id: true },
     });
-    if (!betzone) {
+    if (!group) {
       return;
     }
 
@@ -640,21 +641,45 @@ export class IngestionService {
     });
 
     for (const league of leagues) {
-      const enabled = isLeagueOffered(league.key, BETZONE_LEAGUE_PREFIXES);
+      const enabled = isLeagueOffered(league.key, offeredLeagueKeys);
+      const existing = await this.prisma.casinoGroupLeague.findUnique({
+        where: {
+          casinoGroupId_leagueId: {
+            casinoGroupId: group.id,
+            leagueId: league.id,
+          },
+        },
+        select: { enabled: true },
+      });
+
       await this.prisma.casinoGroupLeague.upsert({
         where: {
           casinoGroupId_leagueId: {
-            casinoGroupId: betzone.id,
+            casinoGroupId: group.id,
             leagueId: league.id,
           },
         },
         create: {
-          casinoGroupId: betzone.id,
+          casinoGroupId: group.id,
           leagueId: league.id,
           enabled,
         },
         update: { enabled },
       });
+
+      if (!existing || existing.enabled !== enabled) {
+        await this.audit.record({
+          actorType: 'system',
+          actorId: 'ingestion',
+          casinoGroupId: group.id,
+          action: 'tenant.league_offering_updated',
+          entityType: 'CasinoGroupLeague',
+          entityId: `${group.id}:${league.id}`,
+          before: existing ? { enabled: existing.enabled, leagueKey: league.key } : null,
+          after: { enabled, leagueKey: league.key },
+          reason: `Catalog ingest sync for ${slug}`,
+        });
+      }
     }
   }
 
