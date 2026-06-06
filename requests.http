@@ -8,7 +8,7 @@
 #
 # Seeded casino groups: `acme` (basketball, baseball, NFL, soccer) and `betzone` (basketball only).
 
-@baseUrl = http://localhost:3001
+@baseUrl = http://localhost:5003
 @api = {{baseUrl}}/api/v1
 @group = acme
 # Paste an operator launch token from: npm run dev:token -- --merchant acme-merchant

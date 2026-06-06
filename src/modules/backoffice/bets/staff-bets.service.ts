@@ -177,6 +177,11 @@ export class StaffBetsService {
     if (bet.status !== BetStatus.ACCEPTED) {
       throw new BadRequestException('Only ACCEPTED bets can be voided');
     }
+    if (reason.startsWith('other:') && !reason.includes(' — ')) {
+      throw new BadRequestException(
+        'A note is required when void reason code is other',
+      );
+    }
 
     await this.wallet.creditPayout({
       userId: bet.userId,

@@ -8,7 +8,7 @@ export const envSchema = z.object({
   NODE_ENV: z
     .enum(['development', 'production', 'test'])
     .default('development'),
-  PORT: z.coerce.number().int().min(1).max(65535).default(3000),
+  PORT: z.coerce.number().int().min(1).max(65535).default(5003),
   DATABASE_URL: z
     .string()
     .min(1)
@@ -99,7 +99,7 @@ export const envSchema = z.object({
   /// Comma-separated allowed origins when NODE_ENV=development.
   CORS_ORIGINS: z
     .string()
-    .default('http://localhost:3000,http://127.0.0.1:3000')
+    .default('http://localhost:5001,http://127.0.0.1:5001,http://localhost:5002,http://127.0.0.1:5002')
     .transform((value) =>
       value
         .split(',')

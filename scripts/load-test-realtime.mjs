@@ -3,7 +3,7 @@
  * Phase 5.1 — lightweight WebSocket fan-out smoke test.
  *
  * Usage:
- *   node scripts/load-test-realtime.mjs --url http://localhost:3001 --token <sessionJWT> --clients 50
+ *   node scripts/load-test-realtime.mjs --url http://localhost:5003 --token <sessionJWT> --clients 50
  *
  * Obtain a session token via GET /api/v1/launch?token=<operatorLaunchJWT>
  * (npm run dev:token -- --merchant acme-merchant).
@@ -11,7 +11,7 @@
 import { io } from 'socket.io-client';
 
 function parseArgs(argv) {
-  const args = { url: 'http://localhost:3001', clients: 20, token: '' };
+  const args = { url: 'http://localhost:5003', clients: 20, token: '' };
   for (let i = 0; i < argv.length; i += 1) {
     const key = argv[i];
     if (key === '--url') args.url = argv[++i];

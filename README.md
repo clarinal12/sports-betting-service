@@ -118,6 +118,19 @@ npm run start:dev
 npm run build && npm run start:prod
 ```
 
+## Dev environment deployment (Docker)
+
+To run **all three apps** (API, back office, player shell) plus Postgres and Redis as a shared dev stack, see **[../deploy/README.md](../deploy/README.md)**.
+
+```bash
+cd ..
+cp .env.deploy.example .env.deploy
+./deploy/up.sh              # local ports
+./deploy/up-https.sh        # public HTTPS via Caddy + Let's Encrypt
+```
+
+Stop local `npm run start:dev` first if ports `5001`–`5003` are already in use.
+
 ## Verify Phase 0
 
 | Endpoint | Purpose |
@@ -173,7 +186,7 @@ Subscribe rate limit: `REALTIME_SUBSCRIBE_MAX_PER_MINUTE` per casino group
 
 ```javascript
 import { io } from 'socket.io-client';
-const socket = io('http://localhost:3001/realtime', {
+const socket = io('http://localhost:5003/realtime', {
   auth: { token: sessionToken },
 });
 socket.on('connected', () => {
@@ -277,8 +290,8 @@ extension (VS Code / Cursor) or a JetBrains IDE — click "Send Request" above a
 request. Event/market IDs are chained automatically, so no copy-pasting IDs.
 
 ```bash
-curl -H "X-Casino-Group: acme" http://localhost:3001/api/v1/sports
-curl -H "X-Casino-Group: betzone" "http://localhost:3001/api/v1/fixtures?pageSize=5"
+curl -H "X-Casino-Group: acme" http://localhost:5003/api/v1/sports
+curl -H "X-Casino-Group: betzone" "http://localhost:5003/api/v1/fixtures?pageSize=5"
 ```
 
 ### Back office (Phase 6)
@@ -326,14 +339,14 @@ npx prisma db seed
 ```
 
 ```bash
-curl -s -X POST http://localhost:3001/api/v1/backoffice/auth/login \
+curl -s -X POST http://localhost:5003/api/v1/backoffice/auth/login \
   -H 'Content-Type: application/json' \
   -d '{"email":"platform@example.com","password":"Platform123!"}'
 ```
 
 ### Back office UI (Phase 6.9)
 
-Operator portal lives in the sibling repo **[sports-betting-backoffice](../sports-betting-backoffice)** (port `3002`). Add `http://localhost:3002` to `CORS_ORIGINS` in `.env` for local browser access.
+Operator portal lives in the sibling repo **[sports-betting-backoffice](../sports-betting-backoffice)** (port `5001`). Add `http://localhost:5001` to `CORS_ORIGINS` in `.env` for local browser access.
 
 ```bash
 cd ../sports-betting-backoffice && pnpm dev
@@ -352,7 +365,7 @@ Apply migration: `npx prisma migrate deploy` (includes `audit_log_entries`).
 
 MVP decisions: [docs/DECISIONS.md](docs/DECISIONS.md). Full design: [docs/DESIGN.md](docs/DESIGN.md).
 
-If port `3001` is in use, set `PORT` in `.env` to a free port before `npm run start:dev`.
+If port `5003` is in use, set `PORT` in `.env` to a free port before `npm run start:dev`.
 
 ### Dev DB vs tests
 

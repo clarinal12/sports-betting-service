@@ -20,10 +20,15 @@ describe('cors.config', () => {
     process.env.NODE_ENV = 'development';
     expect(isDevelopmentEnv()).toBe(true);
     const http = httpCorsOptions();
-    expect(http?.origin).toContain('http://localhost:3000');
+    expect(http?.origin).toContain('http://localhost:5002');
     expect(http?.allowedHeaders).toContain('Idempotency-Key');
     expect(socketIoCorsOptions()).toEqual({
-      origin: ['http://localhost:3000', 'http://127.0.0.1:3000'],
+      origin: [
+        'http://localhost:5001',
+        'http://127.0.0.1:5001',
+        'http://localhost:5002',
+        'http://127.0.0.1:5002',
+      ],
       credentials: true,
     });
   });
