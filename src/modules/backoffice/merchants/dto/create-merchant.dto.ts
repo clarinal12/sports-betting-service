@@ -1,5 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
+  IsEmail,
   IsOptional,
   IsString,
   Matches,
@@ -49,4 +50,24 @@ export class CreateMerchantDto {
   @IsOptional()
   @IsString({ each: true })
   enabledLeagueKeys?: string[];
+
+  @ApiPropertyOptional({
+    example: 'admin@luckystar.merchant.local',
+    description:
+      'Back-office login for the merchant operator (OPERATOR_ADMIN). Defaults to admin@{slug}.merchant.local',
+  })
+  @IsOptional()
+  @IsEmail()
+  operatorEmail?: string;
+
+  @ApiPropertyOptional({
+    example: 'ChangeMe123!',
+    description:
+      'Initial operator password (shown once). Auto-generated when omitted.',
+    minLength: 8,
+  })
+  @IsOptional()
+  @IsString()
+  @MinLength(8)
+  operatorPassword?: string;
 }

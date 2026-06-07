@@ -145,11 +145,29 @@ describe('Back office (e2e)', () => {
         name: 'E2E New Merchant',
         merchantId: 'e2e-new-merchant-id',
         defaultCurrency: 'USD',
+        operatorEmail: 'ops@e2e-new-merchant.test',
+        operatorPassword: 'OperatorE2e123!',
       })
       .expect(201);
 
     expect(created.body.sportsSecret).toBeDefined();
     expect(created.body.merchantId).toBe('e2e-new-merchant-id');
+    expect(created.body.operatorAdmin).toMatchObject({
+      email: 'ops@e2e-new-merchant.test',
+      roles: ['OPERATOR_ADMIN'],
+    });
+    expect(created.body.operatorAdmin.password).toBeDefined();
+
+    const operatorLogin = await request(app.getHttpServer())
+      .post('/api/v1/backoffice/auth/login')
+      .send({
+        email: 'ops@e2e-new-merchant.test',
+        password: created.body.operatorAdmin.password,
+      })
+      .expect(201);
+    expect(operatorLogin.body.staff.casinoGroupId).toBe(created.body.id);
+    expect(operatorLogin.body.staff.permissions).toContain('bets.read');
+    expect(operatorLogin.body.staff.permissions).not.toContain('settlement.run');
 
     const groupId = created.body.id as string;
 
