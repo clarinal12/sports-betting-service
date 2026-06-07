@@ -4,6 +4,7 @@ import {
   Get,
   Param,
   Patch,
+  Post,
   Put,
   Query,
   UseGuards,
@@ -17,6 +18,7 @@ import type { StaffContext } from './staff-context.types';
 import { StaffAdminService } from './staff-admin.service';
 import { UpdateStaffTenantAccessDto } from './dto/update-staff-tenant-access.dto';
 import { ListOperatorsQueryDto } from './dto/list-operators-query.dto';
+import { CreateOperatorStaffDto } from './dto/create-operator-staff.dto';
 import { UpdateOperatorStaffDto } from './dto/update-operator-staff.dto';
 
 @ApiTags('backoffice-staff-admin')
@@ -55,6 +57,20 @@ export class StaffAdminController {
     @Query() query: ListOperatorsQueryDto,
   ) {
     return this.staffAdmin.listOperatorAdmins(staff, query.casinoGroupId);
+  }
+
+  @Post('operators')
+  @RequirePermission('staff.operator.update')
+  createOperator(
+    @CurrentStaff() staff: StaffContext,
+    @Query() query: ListOperatorsQueryDto,
+    @Body() body: CreateOperatorStaffDto,
+  ) {
+    return this.staffAdmin.createOperatorAdmin(
+      staff,
+      query.casinoGroupId,
+      body,
+    );
   }
 
   @Patch('operators/:staffUserId')
