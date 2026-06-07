@@ -87,7 +87,55 @@ describe('Back office (e2e)', () => {
         casinoGroupId: acme.id,
       },
     });
+
+    await cleanupE2eMerchants(prisma);
   });
+
+  async function cleanupE2eMerchants(db: PrismaService) {
+    const e2eSlugs = ['e2e-new-merchant', 'e2e-default-mid', 'e2e-pa-created'];
+    const operatorEmails = [
+      'ops@e2e-new-merchant.test',
+      'admin@e2e-default-mid.merchant.local',
+      'admin@e2e-pa-created.merchant.local',
+      'admin@e2e-new-merchant.merchant.local',
+    ];
+    const groups = await db.casinoGroup.findMany({
+      where: { slug: { in: e2eSlugs } },
+      select: { id: true },
+    });
+    const groupIds = groups.map((group) => group.id);
+
+    const operatorStaff = await db.staffUser.findMany({
+      where: {
+        OR: [
+          ...(groupIds.length > 0
+            ? [{ casinoGroupId: { in: groupIds } }]
+            : []),
+          { email: { in: operatorEmails } },
+        ],
+      },
+      select: { id: true },
+    });
+    const operatorStaffIds = operatorStaff.map((user) => user.id);
+
+    if (operatorStaffIds.length > 0) {
+      await db.staffSession.deleteMany({
+        where: { staffUserId: { in: operatorStaffIds } },
+      });
+      await db.staffUser.deleteMany({
+        where: { id: { in: operatorStaffIds } },
+      });
+    }
+
+    if (groupIds.length > 0) {
+      await db.staffCasinoGroupAccess.deleteMany({
+        where: { casinoGroupId: { in: groupIds } },
+      });
+      await db.casinoGroup.deleteMany({
+        where: { id: { in: groupIds } },
+      });
+    }
+  }
 
   afterAll(async () => {
     await prisma.staffSession.deleteMany({
@@ -109,13 +157,7 @@ describe('Back office (e2e)', () => {
         },
       },
     });
-    await prisma.casinoGroup.deleteMany({
-      where: {
-        slug: {
-          in: ['e2e-new-merchant', 'e2e-default-mid', 'e2e-pa-created'],
-        },
-      },
-    });
+    await cleanupE2eMerchants(prisma);
     await app.close();
   });
 
@@ -365,6 +407,75 @@ describe('Back office (e2e)', () => {
       )
       .set('Authorization', `Bearer ${token}`)
       .expect(404);
+  });
+
+  it('lets platform staff update operator admin email and password', async () => {
+    const acme = await prisma.casinoGroup.findUniqueOrThrow({
+      where: { slug: 'acme' },
+    });
+    const operator = await prisma.staffUser.findUniqueOrThrow({
+      where: { email: 'op-e2e@example.com' },
+    });
+
+    const paLogin = await request(app.getHttpServer())
+      .post('/api/v1/backoffice/auth/login')
+      .send({ email: 'pa-e2e@example.com', password: 'PaE2e123!' })
+      .expect(201);
+    const paToken = paLogin.body.accessToken as string;
+
+    await request(app.getHttpServer())
+      .get(`/api/v1/backoffice/staff/operators?casinoGroupId=${acme.id}`)
+      .set('Authorization', `Bearer ${paToken}`)
+      .expect(200)
+      .expect((res) => {
+        const emails = (res.body as { email: string }[]).map((row) => row.email);
+        expect(emails).toContain('op-e2e@example.com');
+      });
+
+    await request(app.getHttpServer())
+      .patch(
+        `/api/v1/backoffice/staff/operators/${operator.id}?casinoGroupId=${acme.id}`,
+      )
+      .set('Authorization', `Bearer ${paToken}`)
+      .send({ password: 'UpdatedOpE2e123!' })
+      .expect(200);
+
+    await request(app.getHttpServer())
+      .post('/api/v1/backoffice/auth/login')
+      .send({ email: 'op-e2e@example.com', password: 'UpdatedOpE2e123!' })
+      .expect(201);
+
+    const superLogin = await request(app.getHttpServer())
+      .post('/api/v1/backoffice/auth/login')
+      .send({ email: 'bo-e2e@example.com', password: 'BoE2e123!' })
+      .expect(201);
+    const superToken = superLogin.body.accessToken as string;
+
+    await request(app.getHttpServer())
+      .patch(
+        `/api/v1/backoffice/staff/operators/${operator.id}?casinoGroupId=${acme.id}`,
+      )
+      .set('Authorization', `Bearer ${superToken}`)
+      .send({ password: 'OpE2e123!' })
+      .expect(200);
+  });
+
+  it('denies tenant operator from managing operator accounts', async () => {
+    const acme = await prisma.casinoGroup.findUniqueOrThrow({
+      where: { slug: 'acme' },
+    });
+
+    const login = await request(app.getHttpServer())
+      .post('/api/v1/backoffice/auth/login')
+      .send({ email: 'op-e2e@example.com', password: 'OpE2e123!' })
+      .expect(201);
+
+    const token = login.body.accessToken as string;
+
+    await request(app.getHttpServer())
+      .get(`/api/v1/backoffice/staff/operators?casinoGroupId=${acme.id}`)
+      .set('Authorization', `Bearer ${token}`)
+      .expect(403);
   });
 
   it('lets super admin assign platform admin tenant access', async () => {

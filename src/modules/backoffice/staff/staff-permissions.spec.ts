@@ -23,10 +23,12 @@ describe('staff-permissions', () => {
     expect(perms).toContain('staff.tenant_access.update');
   });
 
-  it('platform admin can onboard merchants but not manage staff IAM', () => {
+  it('platform admin can onboard merchants and manage operator accounts', () => {
     const perms = permissionsForRoles([StaffRole.PLATFORM_ADMIN]);
     expect(perms).toContain('tenant.create');
     expect(perms).not.toContain('staff.read');
+    expect(perms).toContain('staff.operator.read');
+    expect(perms).toContain('staff.operator.update');
   });
 
   it('tenant operator admin cannot onboard merchants or read staff IAM', () => {

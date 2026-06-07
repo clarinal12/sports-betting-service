@@ -9,6 +9,8 @@ export const STAFF_PERMISSIONS = [
   'staff.read',
   'staff.tenant_access.read',
   'staff.tenant_access.update',
+  'staff.operator.read',
+  'staff.operator.update',
   'trading.read',
   'trading.suspend',
   'trading.limits.read',
@@ -40,6 +42,8 @@ const PLATFORM_OPS_PERMISSIONS: StaffPermission[] = [
   'settlement.run',
   'analytics.read',
   'compliance.audit.read',
+  'staff.operator.read',
+  'staff.operator.update',
 ];
 
 /** Full admin within one casino group — cannot onboard merchants. */

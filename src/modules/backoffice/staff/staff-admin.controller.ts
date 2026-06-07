@@ -1,4 +1,13 @@
-import { Body, Controller, Get, Param, Put, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Patch,
+  Put,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { StaffAuthGuard } from './staff-auth.guard';
 import { RequirePermission } from './require-permission.decorator';
@@ -7,6 +16,8 @@ import { assertSuperAdmin } from './staff-scope.util';
 import type { StaffContext } from './staff-context.types';
 import { StaffAdminService } from './staff-admin.service';
 import { UpdateStaffTenantAccessDto } from './dto/update-staff-tenant-access.dto';
+import { ListOperatorsQueryDto } from './dto/list-operators-query.dto';
+import { UpdateOperatorStaffDto } from './dto/update-operator-staff.dto';
 
 @ApiTags('backoffice-staff-admin')
 @Controller('backoffice/staff')
@@ -34,6 +45,31 @@ export class StaffAdminController {
       staffUserId,
       body.casinoGroupIds,
       staff.staffUserId,
+    );
+  }
+
+  @Get('operators')
+  @RequirePermission('staff.operator.read')
+  listOperators(
+    @CurrentStaff() staff: StaffContext,
+    @Query() query: ListOperatorsQueryDto,
+  ) {
+    return this.staffAdmin.listOperatorAdmins(staff, query.casinoGroupId);
+  }
+
+  @Patch('operators/:staffUserId')
+  @RequirePermission('staff.operator.update')
+  updateOperator(
+    @CurrentStaff() staff: StaffContext,
+    @Param('staffUserId') staffUserId: string,
+    @Query() query: ListOperatorsQueryDto,
+    @Body() body: UpdateOperatorStaffDto,
+  ) {
+    return this.staffAdmin.updateOperatorAdmin(
+      staff,
+      staffUserId,
+      query.casinoGroupId,
+      body,
     );
   }
 }
