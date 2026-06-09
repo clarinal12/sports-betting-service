@@ -22,7 +22,7 @@ async function run(): Promise<void> {
     );
     if (summary.fixturesSkipped > 0) {
       logger.warn(
-        `${summary.fixturesSkipped} mock fixture(s) kept because they have placed bets`,
+        `${summary.fixturesSkipped} mock fixture(s) kept because they have active (PENDING/ACCEPTED) bets`,
       );
     }
   } catch (error) {

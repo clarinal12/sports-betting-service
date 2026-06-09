@@ -141,7 +141,7 @@ export class IngestionService {
     };
 
     const fixturesSkipped = await this.prisma.fixture.count({
-      where: { AND: [mockFixtureWhere, this.fixtureHasPlacedBetsWhere()] },
+      where: { AND: [mockFixtureWhere, this.fixtureHasActiveBetsWhere()] },
     });
 
     const fixturesRemoved = await this.deleteStaleFixtures(mockFixtureWhere);
@@ -447,13 +447,22 @@ export class IngestionService {
     return fixtureCount;
   }
 
-  private fixtureHasPlacedBetsWhere(): Prisma.FixtureWhereInput {
+  /** Fixtures with open liabilities (PENDING or ACCEPTED bets) must not be purged. */
+  private fixtureHasActiveBetsWhere(): Prisma.FixtureWhereInput {
     return {
       event: {
         markets: {
           some: {
             selections: {
-              some: { betLegs: { some: {} } },
+              some: {
+                betLegs: {
+                  some: {
+                    bet: {
+                      status: { in: [BetStatus.PENDING, BetStatus.ACCEPTED] },
+                    },
+                  },
+                },
+              },
             },
           },
         },
@@ -462,24 +471,24 @@ export class IngestionService {
   }
 
   /**
-   * Deletes fixtures matching `where` unless a selection on the fixture has bet legs.
+   * Deletes fixtures matching `where` unless a selection has an active bet leg.
    */
   private async deleteStaleFixtures(
     where: Prisma.FixtureWhereInput,
   ): Promise<number> {
-    const hasPlacedBets = this.fixtureHasPlacedBetsWhere();
+    const hasActiveBets = this.fixtureHasActiveBetsWhere();
 
     const skipped = await this.prisma.fixture.count({
-      where: { AND: [where, hasPlacedBets] },
+      where: { AND: [where, hasActiveBets] },
     });
     if (skipped > 0) {
       this.logger.log(
-        `Kept ${skipped} stale fixture(s) with placed bets (cannot purge while bet legs reference selections)`,
+        `Kept ${skipped} stale fixture(s) with active bets (cannot purge while PENDING/ACCEPTED bets reference selections)`,
       );
     }
 
     const removed = await this.prisma.fixture.deleteMany({
-      where: { AND: [where, { NOT: hasPlacedBets }] },
+      where: { AND: [where, { NOT: hasActiveBets }] },
     });
     return removed.count;
   }
