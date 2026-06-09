@@ -5,7 +5,7 @@ import { IngestionService } from './ingestion.service';
 
 /**
  * Standalone entrypoint: `npm run ingest:purge-mock`.
- * Removes mock fixtures without bet history; ends fixtures with voided legs in place.
+ * Removes mock fixtures and any voided/settled bets on them.
  * Keeps casino groups, staff, and fixtures with active (PENDING/ACCEPTED) bets.
  */
 async function run(): Promise<void> {
@@ -18,11 +18,11 @@ async function run(): Promise<void> {
     const ingestion = app.get(IngestionService);
     const summary = await ingestion.purgeMockCatalog();
     logger.log(
-      `Mock catalog purge completed: fixturesRemoved=${summary.fixturesRemoved}, fixturesRetired=${summary.fixturesRetired}, fixturesSkipped=${summary.fixturesSkipped}, teamsRemoved=${summary.teamsRemoved}`,
+      `Mock catalog purge completed: fixturesRemoved=${summary.fixturesRemoved}, betsRemoved=${summary.betsRemoved}, fixturesSkipped=${summary.fixturesSkipped}, teamsRemoved=${summary.teamsRemoved}`,
     );
-    if (summary.fixturesRetired > 0) {
+    if (summary.betsRemoved > 0) {
       logger.log(
-        `${summary.fixturesRetired} mock fixture(s) ended in place (bet history preserved; no longer live)`,
+        `${summary.betsRemoved} bet(s) on mock fixtures were deleted with the catalog purge`,
       );
     }
     if (summary.fixturesSkipped > 0) {

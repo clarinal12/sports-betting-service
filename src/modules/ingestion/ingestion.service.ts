@@ -34,6 +34,7 @@ import { hasLiveGames, resolveLiveSportKeys } from './ingestion-live.scope';
 import {
   MOCK_FIXTURE_PROVIDER_PREFIX,
   MOCK_TEAM_KEYS,
+  PURGED_MOCK_FIXTURE_PROVIDER_PREFIX,
 } from '../providers/mock/mock-catalog.constants';
 
 export interface IngestionSummary {
@@ -54,8 +55,7 @@ export interface LiveIngestionSummary extends IngestionSummary {
 
 export interface PurgeMockCatalogSummary {
   fixturesRemoved: number;
-  /** Ended in place when bet history blocks hard delete (voided/settled legs). */
-  fixturesRetired: number;
+  betsRemoved: number;
   fixturesSkipped: number;
   teamsRemoved: number;
 }
@@ -134,22 +134,18 @@ export class IngestionService {
   }
 
   /**
-   * Removes mock-provider catalog rows while keeping tenants and bet history.
-   * Fixtures with only voided/settled legs are ended in place (FK-safe).
+   * Deletes mock-provider catalog rows and any non-active bets on those fixtures.
+   * Fixtures with PENDING/ACCEPTED bets are skipped.
    */
   async purgeMockCatalog(): Promise<PurgeMockCatalogSummary> {
-    const mockFixtureWhere: Prisma.FixtureWhereInput = {
-      providerRef: { startsWith: MOCK_FIXTURE_PROVIDER_PREFIX },
-    };
+    const mockFixtureWhere = this.mockFixtureWhere();
 
     const fixturesSkipped = await this.prisma.fixture.count({
       where: { AND: [mockFixtureWhere, this.fixtureHasActiveBetsWhere()] },
     });
 
-    const fixturesRemoved = await this.deleteStaleFixtures(mockFixtureWhere);
-    const fixturesRetired = await this.retireMockFixturesWithBetHistory(
-      mockFixtureWhere,
-    );
+    const { fixturesRemoved, betsRemoved } =
+      await this.deleteFixturesAndBetHistory(mockFixtureWhere);
 
     const teamsRemoved = await this.prisma.team.deleteMany({
       where: {
@@ -159,19 +155,15 @@ export class IngestionService {
       },
     });
 
-    if (
-      fixturesRemoved > 0 ||
-      fixturesRetired > 0 ||
-      teamsRemoved.count > 0
-    ) {
+    if (fixturesRemoved > 0 || betsRemoved > 0 || teamsRemoved.count > 0) {
       this.logger.log(
-        `Purged mock catalog: fixturesRemoved=${fixturesRemoved}, fixturesRetired=${fixturesRetired}, teams=${teamsRemoved.count}`,
+        `Purged mock catalog: fixturesRemoved=${fixturesRemoved}, betsRemoved=${betsRemoved}, teams=${teamsRemoved.count}`,
       );
     }
 
     return {
       fixturesRemoved,
-      fixturesRetired,
+      betsRemoved,
       fixturesSkipped,
       teamsRemoved: teamsRemoved.count,
     };
@@ -457,17 +449,12 @@ export class IngestionService {
     return fixtureCount;
   }
 
-  private fixtureHasAnyBetLegsWhere(): Prisma.FixtureWhereInput {
+  private mockFixtureWhere(): Prisma.FixtureWhereInput {
     return {
-      event: {
-        markets: {
-          some: {
-            selections: {
-              some: { betLegs: { some: {} } },
-            },
-          },
-        },
-      },
+      OR: [
+        { providerRef: { startsWith: MOCK_FIXTURE_PROVIDER_PREFIX } },
+        { providerRef: { startsWith: PURGED_MOCK_FIXTURE_PROVIDER_PREFIX } },
+      ],
     };
   }
 
@@ -495,76 +482,80 @@ export class IngestionService {
   }
 
   /**
-   * Deletes fixtures matching `where` when they have no active bets and no bet
-   * history (voided/settled legs keep selections alive via FK).
+   * Deletes fixtures matching `where` when they have no active bets, removing
+   * any voided/settled bet rows that still reference fixture selections.
    */
   private async deleteStaleFixtures(
     where: Prisma.FixtureWhereInput,
   ): Promise<number> {
+    const { fixturesRemoved } = await this.deleteFixturesAndBetHistory(where);
+    return fixturesRemoved;
+  }
+
+  private async deleteFixturesAndBetHistory(
+    where: Prisma.FixtureWhereInput,
+  ): Promise<{ fixturesRemoved: number; betsRemoved: number }> {
     const hasActiveBets = this.fixtureHasActiveBetsWhere();
-    const hasAnyBetLegs = this.fixtureHasAnyBetLegsWhere();
 
     const skipped = await this.prisma.fixture.count({
       where: { AND: [where, hasActiveBets] },
     });
     if (skipped > 0) {
       this.logger.log(
-        `Kept ${skipped} stale fixture(s) with active bets (cannot purge while PENDING/ACCEPTED bets reference selections)`,
+        `Kept ${skipped} fixture(s) with active bets (cannot purge while PENDING/ACCEPTED bets reference selections)`,
       );
+    }
+
+    const fixturesToPurge = await this.prisma.fixture.findMany({
+      where: { AND: [where, { NOT: hasActiveBets }] },
+      select: { id: true },
+    });
+    if (fixturesToPurge.length === 0) {
+      return { fixturesRemoved: 0, betsRemoved: 0 };
+    }
+
+    const fixtureIds = fixturesToPurge.map((fixture) => fixture.id);
+    const selections = await this.prisma.selection.findMany({
+      where: { market: { event: { fixtureId: { in: fixtureIds } } } },
+      select: { id: true },
+    });
+    const selectionIds = selections.map((selection) => selection.id);
+
+    let betsRemoved = 0;
+    if (selectionIds.length > 0) {
+      const betLegs = await this.prisma.betLeg.findMany({
+        where: { selectionId: { in: selectionIds } },
+        select: { betId: true },
+        distinct: ['betId'],
+      });
+      const betIds = betLegs.map((leg) => leg.betId);
+
+      if (betIds.length > 0) {
+        await this.prisma.$transaction(async (tx) => {
+          await tx.walletOutbox.deleteMany({
+            where: { betId: { in: betIds } },
+          });
+          const deletedBets = await tx.bet.deleteMany({
+            where: { id: { in: betIds } },
+          });
+          betsRemoved = deletedBets.count;
+          await tx.fixture.deleteMany({ where: { id: { in: fixtureIds } } });
+        });
+
+        if (betsRemoved > 0) {
+          this.logger.log(
+            `Removed ${betsRemoved} bet(s) tied to purged fixture selections`,
+          );
+        }
+
+        return { fixturesRemoved: fixtureIds.length, betsRemoved };
+      }
     }
 
     const removed = await this.prisma.fixture.deleteMany({
-      where: {
-        AND: [where, { NOT: hasActiveBets }, { NOT: hasAnyBetLegs }],
-      },
+      where: { id: { in: fixtureIds } },
     });
-    return removed.count;
-  }
-
-  /** Ends mock fixtures that still have bet legs so they leave the live slate. */
-  private async retireMockFixturesWithBetHistory(
-    where: Prisma.FixtureWhereInput,
-  ): Promise<number> {
-    const fixtures = await this.prisma.fixture.findMany({
-      where: {
-        AND: [
-          where,
-          { NOT: this.fixtureHasActiveBetsWhere() },
-          this.fixtureHasAnyBetLegsWhere(),
-        ],
-      },
-      select: {
-        id: true,
-        event: { select: { id: true } },
-      },
-    });
-
-    for (const fixture of fixtures) {
-      await this.prisma.$transaction(async (tx) => {
-        await tx.fixture.update({
-          where: { id: fixture.id },
-          data: { status: FixtureStatus.ENDED },
-        });
-        if (fixture.event) {
-          await tx.event.update({
-            where: { id: fixture.event.id },
-            data: { status: EventStatus.ENDED },
-          });
-          await tx.market.updateMany({
-            where: { eventId: fixture.event.id },
-            data: { status: MarketStatus.SETTLED },
-          });
-        }
-      });
-    }
-
-    if (fixtures.length > 0) {
-      this.logger.log(
-        `Retired ${fixtures.length} mock fixture(s) with bet history (ended in place; bet records preserved)`,
-      );
-    }
-
-    return fixtures.length;
+    return { fixturesRemoved: removed.count, betsRemoved: 0 };
   }
 
   private async ingestLiveData(
