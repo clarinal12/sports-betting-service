@@ -31,6 +31,10 @@ import {
   type ProviderSnapshot,
 } from '../providers/provider.types';
 import { hasLiveGames, resolveLiveSportKeys } from './ingestion-live.scope';
+import {
+  MOCK_FIXTURE_PROVIDER_PREFIX,
+  MOCK_TEAM_KEYS,
+} from '../providers/mock/mock-catalog.constants';
 
 export interface IngestionSummary {
   sports: number;
@@ -46,6 +50,12 @@ export interface IngestionSummary {
 export interface LiveIngestionSummary extends IngestionSummary {
   sportKeys: string[];
   skipped: boolean;
+}
+
+export interface PurgeMockCatalogSummary {
+  fixturesRemoved: number;
+  fixturesSkipped: number;
+  teamsRemoved: number;
 }
 
 const FIXTURE_STATUS_MAP: Record<NormalizedFixtureStatus, FixtureStatus> = {
@@ -119,6 +129,42 @@ export class IngestionService {
       this.logIngestion('Catalog ingest', summary);
       return summary;
     });
+  }
+
+  /**
+   * Deletes mock-provider catalog rows while keeping tenants and any mock fixtures
+   * that still have placed bets. Events, markets, selections cascade from fixtures.
+   */
+  async purgeMockCatalog(): Promise<PurgeMockCatalogSummary> {
+    const mockFixtureWhere: Prisma.FixtureWhereInput = {
+      providerRef: { startsWith: MOCK_FIXTURE_PROVIDER_PREFIX },
+    };
+
+    const fixturesSkipped = await this.prisma.fixture.count({
+      where: { AND: [mockFixtureWhere, this.fixtureHasPlacedBetsWhere()] },
+    });
+
+    const fixturesRemoved = await this.deleteStaleFixtures(mockFixtureWhere);
+
+    const teamsRemoved = await this.prisma.team.deleteMany({
+      where: {
+        key: { in: [...MOCK_TEAM_KEYS] },
+        homeFixtures: { none: {} },
+        awayFixtures: { none: {} },
+      },
+    });
+
+    if (fixturesRemoved > 0 || teamsRemoved.count > 0) {
+      this.logger.log(
+        `Purged mock catalog: fixtures=${fixturesRemoved}, teams=${teamsRemoved.count}`,
+      );
+    }
+
+    return {
+      fixturesRemoved,
+      fixturesSkipped,
+      teamsRemoved: teamsRemoved.count,
+    };
   }
 
   async hasLiveGames(): Promise<boolean> {
@@ -401,13 +447,8 @@ export class IngestionService {
     return fixtureCount;
   }
 
-  /**
-   * Deletes fixtures matching `where` unless a selection on the fixture has bet legs.
-   */
-  private async deleteStaleFixtures(
-    where: Prisma.FixtureWhereInput,
-  ): Promise<number> {
-    const hasPlacedBets: Prisma.FixtureWhereInput = {
+  private fixtureHasPlacedBetsWhere(): Prisma.FixtureWhereInput {
+    return {
       event: {
         markets: {
           some: {
@@ -418,6 +459,15 @@ export class IngestionService {
         },
       },
     };
+  }
+
+  /**
+   * Deletes fixtures matching `where` unless a selection on the fixture has bet legs.
+   */
+  private async deleteStaleFixtures(
+    where: Prisma.FixtureWhereInput,
+  ): Promise<number> {
+    const hasPlacedBets = this.fixtureHasPlacedBetsWhere();
 
     const skipped = await this.prisma.fixture.count({
       where: { AND: [where, hasPlacedBets] },

@@ -26,6 +26,7 @@
     "db:seed": "ts-node prisma/seed.ts",
     "db:reset": "prisma migrate reset --force",
     "ingest:fixtures": "ts-node src/modules/ingestion/ingest.command.ts",
+    "ingest:purge-mock": "ts-node src/modules/ingestion/purge-mock.command.ts",
     "ingest:live": "ts-node src/modules/ingestion/ingest-live.command.ts",
     "ingest:results": "ts-node src/modules/ingestion/ingest-results.command.ts",
     "settle": "ts-node src/modules/settlement/settle.command.ts",

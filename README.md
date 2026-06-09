@@ -51,6 +51,13 @@ npm run db:reset
 To refresh odds/schedule only (keeps groups): `npm run ingest:fixtures`. With
 `FIXTURE_PROVIDER=odds-api`, catalog ingest **upserts only** (no stale-fixture purge).
 Mock ingest removes stale `mock_*` fixtures not in the snapshot (skipping any with bets).
+To drop **all** leftover mock fixtures/teams after switching to odds-api (keeps `acme` /
+`betzone` and any mock games with placed bets):
+
+```bash
+npm run ingest:purge-mock
+npm run ingest:fixtures   # optional: refresh real schedule
+```
 
 To refresh **live scores and in-play odds** only (cheap; scoped to LIVE fixtures
 already in the DB): `npm run ingest:live`. Run `ingest:fixtures` first so the
