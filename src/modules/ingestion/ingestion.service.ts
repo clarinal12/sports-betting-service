@@ -54,6 +54,8 @@ export interface LiveIngestionSummary extends IngestionSummary {
 
 export interface PurgeMockCatalogSummary {
   fixturesRemoved: number;
+  /** Ended in place when bet history blocks hard delete (voided/settled legs). */
+  fixturesRetired: number;
   fixturesSkipped: number;
   teamsRemoved: number;
 }
@@ -132,8 +134,8 @@ export class IngestionService {
   }
 
   /**
-   * Deletes mock-provider catalog rows while keeping tenants and any mock fixtures
-   * that still have placed bets. Events, markets, selections cascade from fixtures.
+   * Removes mock-provider catalog rows while keeping tenants and bet history.
+   * Fixtures with only voided/settled legs are ended in place (FK-safe).
    */
   async purgeMockCatalog(): Promise<PurgeMockCatalogSummary> {
     const mockFixtureWhere: Prisma.FixtureWhereInput = {
@@ -145,6 +147,9 @@ export class IngestionService {
     });
 
     const fixturesRemoved = await this.deleteStaleFixtures(mockFixtureWhere);
+    const fixturesRetired = await this.retireMockFixturesWithBetHistory(
+      mockFixtureWhere,
+    );
 
     const teamsRemoved = await this.prisma.team.deleteMany({
       where: {
@@ -154,14 +159,19 @@ export class IngestionService {
       },
     });
 
-    if (fixturesRemoved > 0 || teamsRemoved.count > 0) {
+    if (
+      fixturesRemoved > 0 ||
+      fixturesRetired > 0 ||
+      teamsRemoved.count > 0
+    ) {
       this.logger.log(
-        `Purged mock catalog: fixtures=${fixturesRemoved}, teams=${teamsRemoved.count}`,
+        `Purged mock catalog: fixturesRemoved=${fixturesRemoved}, fixturesRetired=${fixturesRetired}, teams=${teamsRemoved.count}`,
       );
     }
 
     return {
       fixturesRemoved,
+      fixturesRetired,
       fixturesSkipped,
       teamsRemoved: teamsRemoved.count,
     };
@@ -447,6 +457,20 @@ export class IngestionService {
     return fixtureCount;
   }
 
+  private fixtureHasAnyBetLegsWhere(): Prisma.FixtureWhereInput {
+    return {
+      event: {
+        markets: {
+          some: {
+            selections: {
+              some: { betLegs: { some: {} } },
+            },
+          },
+        },
+      },
+    };
+  }
+
   /** Fixtures with open liabilities (PENDING or ACCEPTED bets) must not be purged. */
   private fixtureHasActiveBetsWhere(): Prisma.FixtureWhereInput {
     return {
@@ -471,12 +495,14 @@ export class IngestionService {
   }
 
   /**
-   * Deletes fixtures matching `where` unless a selection has an active bet leg.
+   * Deletes fixtures matching `where` when they have no active bets and no bet
+   * history (voided/settled legs keep selections alive via FK).
    */
   private async deleteStaleFixtures(
     where: Prisma.FixtureWhereInput,
   ): Promise<number> {
     const hasActiveBets = this.fixtureHasActiveBetsWhere();
+    const hasAnyBetLegs = this.fixtureHasAnyBetLegsWhere();
 
     const skipped = await this.prisma.fixture.count({
       where: { AND: [where, hasActiveBets] },
@@ -488,9 +514,57 @@ export class IngestionService {
     }
 
     const removed = await this.prisma.fixture.deleteMany({
-      where: { AND: [where, { NOT: hasActiveBets }] },
+      where: {
+        AND: [where, { NOT: hasActiveBets }, { NOT: hasAnyBetLegs }],
+      },
     });
     return removed.count;
+  }
+
+  /** Ends mock fixtures that still have bet legs so they leave the live slate. */
+  private async retireMockFixturesWithBetHistory(
+    where: Prisma.FixtureWhereInput,
+  ): Promise<number> {
+    const fixtures = await this.prisma.fixture.findMany({
+      where: {
+        AND: [
+          where,
+          { NOT: this.fixtureHasActiveBetsWhere() },
+          this.fixtureHasAnyBetLegsWhere(),
+        ],
+      },
+      select: {
+        id: true,
+        event: { select: { id: true } },
+      },
+    });
+
+    for (const fixture of fixtures) {
+      await this.prisma.$transaction(async (tx) => {
+        await tx.fixture.update({
+          where: { id: fixture.id },
+          data: { status: FixtureStatus.ENDED },
+        });
+        if (fixture.event) {
+          await tx.event.update({
+            where: { id: fixture.event.id },
+            data: { status: EventStatus.ENDED },
+          });
+          await tx.market.updateMany({
+            where: { eventId: fixture.event.id },
+            data: { status: MarketStatus.SETTLED },
+          });
+        }
+      });
+    }
+
+    if (fixtures.length > 0) {
+      this.logger.log(
+        `Retired ${fixtures.length} mock fixture(s) with bet history (ended in place; bet records preserved)`,
+      );
+    }
+
+    return fixtures.length;
   }
 
   private async ingestLiveData(
