@@ -30,7 +30,7 @@ import {
   type NormalizedSelectionStatus,
   type ProviderSnapshot,
 } from '../providers/provider.types';
-import { resolveLiveSportKeys } from './ingestion-live.scope';
+import { hasLiveGames, resolveLiveSportKeys } from './ingestion-live.scope';
 
 export interface IngestionSummary {
   sports: number;
@@ -121,21 +121,27 @@ export class IngestionService {
     });
   }
 
+  async hasLiveGames(): Promise<boolean> {
+    return hasLiveGames(this.prisma);
+  }
+
+  async resolveLiveIngestSportKeys(): Promise<string[]> {
+    const prestartMinutes = this.config.get('INGEST_LIVE_PRESTART_MINUTES', {
+      infer: true,
+    });
+    return resolveLiveSportKeys(this.prisma, prestartMinutes);
+  }
+
   /**
-   * Polls only leagues with LIVE (or imminently starting) fixtures in the DB.
+   * Polls only when active live games exist in the DB (optional prestart window).
    * Does not refresh the full catalog or purge fixtures when the snapshot is empty.
    */
   async ingestLiveTick(): Promise<LiveIngestionSummary> {
     return this.runIngestion('live', async () => {
-      const prestartMinutes = this.config.get('INGEST_LIVE_PRESTART_MINUTES', {
-        infer: true,
-      });
-      const sportKeys = await resolveLiveSportKeys(this.prisma, prestartMinutes);
+      const sportKeys = await this.resolveLiveIngestSportKeys();
 
       if (sportKeys.length === 0) {
-        this.logger.log(
-          'Live ingest skipped: no LIVE or imminently starting fixtures in DB',
-        );
+        this.logger.log('Live ingest skipped: no active live games in DB');
         return {
           sportKeys: [],
           skipped: true,

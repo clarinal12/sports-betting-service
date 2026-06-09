@@ -138,15 +138,22 @@ export const envSchema = z.object({
     ),
   ODDS_API_ODDS_FORMAT: z.enum(['decimal', 'american']).default('decimal'),
 
-  /// Minutes before kickoff to include scheduled fixtures on live ingest ticks.
-  INGEST_LIVE_PRESTART_MINUTES: z.coerce.number().int().min(0).max(120).default(15),
-  /// When true, the API process polls live fixtures on a fixed interval.
+  /// Minutes before kickoff to also poll scheduled fixtures (0 = active LIVE games only).
+  INGEST_LIVE_PRESTART_MINUTES: z.coerce.number().int().min(0).max(120).default(0),
+  /// When true, the API process watches for live games and polls only while they exist.
   INGEST_LIVE_ENABLED: z
     .enum(['true', 'false'])
     .default('false')
     .transform((value) => value === 'true'),
-  /// Seconds between in-process live ingest ticks (CLI `ingest:live` is unaffected).
+  /// Seconds between live-ingest API polls while active live games exist.
   INGEST_LIVE_INTERVAL_SECONDS: z.coerce
+    .number()
+    .int()
+    .min(15)
+    .max(3600)
+    .default(60),
+  /// Seconds between DB checks for active live games (starts/stops polling).
+  INGEST_LIVE_WATCH_INTERVAL_SECONDS: z.coerce
     .number()
     .int()
     .min(15)

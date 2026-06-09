@@ -1,5 +1,5 @@
 import { EventStatus, FixtureStatus } from '@prisma/client';
-import { resolveLiveSportKeys } from './ingestion-live.scope';
+import { hasLiveGames, resolveLiveSportKeys } from './ingestion-live.scope';
 
 describe('resolveLiveSportKeys', () => {
   const now = new Date('2026-06-01T12:00:00.000Z');
@@ -39,6 +39,24 @@ describe('resolveLiveSportKeys', () => {
     );
   });
 
+  it('does not include scheduled fixtures when prestart is disabled', async () => {
+    const prisma = {
+      fixture: {
+        findMany: jest.fn().mockResolvedValue([]),
+      },
+    };
+
+    await resolveLiveSportKeys(prisma as never, 0);
+
+    const call = prisma.fixture.findMany.mock.calls[0][0] as {
+      where: { OR: unknown[] };
+    };
+    expect(call.where.OR).toEqual([
+      { status: FixtureStatus.LIVE },
+      { event: { status: EventStatus.LIVE } },
+    ]);
+  });
+
   it('includes scheduled fixtures starting within prestart window', async () => {
     const prisma = {
       fixture: {
@@ -62,5 +80,27 @@ describe('resolveLiveSportKeys', () => {
         },
       ]),
     );
+  });
+});
+
+describe('hasLiveGames', () => {
+  it('returns true when a LIVE fixture exists', async () => {
+    const prisma = {
+      fixture: {
+        findFirst: jest.fn().mockResolvedValue({ id: 'fx-1' }),
+      },
+    };
+
+    await expect(hasLiveGames(prisma as never)).resolves.toBe(true);
+  });
+
+  it('returns false when no LIVE fixtures exist', async () => {
+    const prisma = {
+      fixture: {
+        findFirst: jest.fn().mockResolvedValue(null),
+      },
+    };
+
+    await expect(hasLiveGames(prisma as never)).resolves.toBe(false);
   });
 });

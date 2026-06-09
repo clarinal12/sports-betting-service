@@ -91,11 +91,12 @@ Set `FIXTURE_PROVIDER=odds-api` and `ODDS_API_KEY` in `.env` to pull live data f
 | `ODDS_API_SPORT_KEYS` | `basketball_nba` | Group aliases or `all` |
 | `ODDS_API_REGIONS` | `all` | `all` → us, us2, uk, eu, au; or comma-separated subset |
 | `ODDS_API_MARKETS` | `h2h,spreads,totals` | Upstream market keys |
-| `INGEST_LIVE_ENABLED` | `false` | In-process live ingest scheduler |
-| `INGEST_LIVE_INTERVAL_SECONDS` | `60` | Tick interval when live scheduler enabled |
+| `INGEST_LIVE_ENABLED` | `false` | Watch for live games; poll only while they are active |
+| `INGEST_LIVE_INTERVAL_SECONDS` | `60` | API poll cadence while live games exist |
+| `INGEST_LIVE_WATCH_INTERVAL_SECONDS` | `60` | How often to check for active live games |
 | `INGEST_CATALOG_ENABLED` | `false` | In-process full catalog ingest scheduler |
 | `INGEST_CATALOG_CRON` | `0 */6 * * *` | Cron for catalog ingest (5-field) |
-| `INGEST_LIVE_PRESTART_MINUTES` | `15` | Include soon-to-start fixtures on live ticks |
+| `INGEST_LIVE_PRESTART_MINUTES` | `0` | Also poll scheduled fixtures N minutes before kickoff (`0` = LIVE only) |
 | `INGEST_ODDS_API_REMAINING_MIN` | `20` | Pause scheduler when quota below this |
 | `INGEST_ODDS_API_PAUSE_MINUTES` | `30` | Pause duration after low quota or 401 |
 
@@ -380,8 +381,9 @@ TEST_DATABASE_URL=postgresql://sports:sports@localhost:5432/sports_betting_test 
 ```
 
 `start:dev` does **not** run catalog ingest on boot; scheduled ingest only fires on the
-cron (`INGEST_CATALOG_CRON`). The live scheduler (`INGEST_LIVE_ENABLED`) runs `ingest:live`
-immediately on startup and does not replace the catalog with mock data.
+cron (`INGEST_CATALOG_CRON`). The live scheduler (`INGEST_LIVE_ENABLED`) watches the DB for
+active LIVE games and only then starts polling Odds API on `INGEST_LIVE_INTERVAL_SECONDS`.
+It does not replace the catalog with mock data.
 
 ## Run tests
 

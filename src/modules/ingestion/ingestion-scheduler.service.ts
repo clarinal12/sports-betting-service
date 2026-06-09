@@ -17,12 +17,14 @@ import {
 import { IngestQuotaService } from './ingest-quota.service';
 import { IngestionService } from './ingestion.service';
 
-const SCHEDULER_LIVE_INTERVAL_NAME = 'ingest-live-tick';
+const SCHEDULER_LIVE_WATCH_NAME = 'ingest-live-watch';
+const SCHEDULER_LIVE_POLL_NAME = 'ingest-live-poll';
 const SCHEDULER_CATALOG_CRON_NAME = 'ingest-catalog';
 
 @Injectable()
 export class IngestionSchedulerService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(IngestionSchedulerService.name);
+  private livePollActive = false;
 
   constructor(
     private readonly config: ConfigService<EnvConfig, true>,
@@ -38,10 +40,11 @@ export class IngestionSchedulerService implements OnModuleInit, OnModuleDestroy 
   }
 
   onModuleDestroy(): void {
+    this.stopLivePoll();
     if (
-      this.schedulerRegistry.doesExist('interval', SCHEDULER_LIVE_INTERVAL_NAME)
+      this.schedulerRegistry.doesExist('interval', SCHEDULER_LIVE_WATCH_NAME)
     ) {
-      this.schedulerRegistry.deleteInterval(SCHEDULER_LIVE_INTERVAL_NAME);
+      this.schedulerRegistry.deleteInterval(SCHEDULER_LIVE_WATCH_NAME);
     }
     if (this.schedulerRegistry.doesExist('cron', SCHEDULER_CATALOG_CRON_NAME)) {
       const job = this.schedulerRegistry.getCronJob(SCHEDULER_CATALOG_CRON_NAME);
@@ -52,7 +55,7 @@ export class IngestionSchedulerService implements OnModuleInit, OnModuleDestroy 
 
   private registerLiveScheduler(): void {
     const enabled = this.config.get('INGEST_LIVE_ENABLED', { infer: true });
-    const intervalSeconds = this.config.get('INGEST_LIVE_INTERVAL_SECONDS', {
+    const watchSeconds = this.config.get('INGEST_LIVE_WATCH_INTERVAL_SECONDS', {
       infer: true,
     });
 
@@ -63,16 +66,107 @@ export class IngestionSchedulerService implements OnModuleInit, OnModuleDestroy 
       return;
     }
 
+    const watchMs = watchSeconds * 1000;
+    const handle = setInterval(() => {
+      void this.runLiveWatch();
+    }, watchMs);
+    this.schedulerRegistry.addInterval(SCHEDULER_LIVE_WATCH_NAME, handle);
+
+    this.logger.log(
+      `Live ingest watch enabled: every ${watchSeconds}s (INGEST_LIVE_WATCH_INTERVAL_SECONDS); polling starts only when active live games exist`,
+    );
+    void this.runLiveWatch();
+  }
+
+  private startLivePoll(): void {
+    if (this.livePollActive) {
+      return;
+    }
+
+    const intervalSeconds = this.config.get('INGEST_LIVE_INTERVAL_SECONDS', {
+      infer: true,
+    });
     const intervalMs = intervalSeconds * 1000;
     const handle = setInterval(() => {
       void this.runLiveTick();
     }, intervalMs);
-    this.schedulerRegistry.addInterval(SCHEDULER_LIVE_INTERVAL_NAME, handle);
+    this.schedulerRegistry.addInterval(SCHEDULER_LIVE_POLL_NAME, handle);
+    this.livePollActive = true;
 
     this.logger.log(
-      `Live ingest scheduler enabled: every ${intervalSeconds}s (INGEST_LIVE_INTERVAL_SECONDS)`,
+      `Live ingest polling started: every ${intervalSeconds}s (INGEST_LIVE_INTERVAL_SECONDS)`,
     );
-    void this.runLiveTick();
+  }
+
+  private stopLivePoll(): void {
+    if (!this.livePollActive) {
+      return;
+    }
+
+    if (this.schedulerRegistry.doesExist('interval', SCHEDULER_LIVE_POLL_NAME)) {
+      this.schedulerRegistry.deleteInterval(SCHEDULER_LIVE_POLL_NAME);
+    }
+    this.livePollActive = false;
+    this.logger.log('Live ingest polling stopped: no active live games');
+  }
+
+  private async runLiveWatch(): Promise<void> {
+    if (!this.config.get('INGEST_LIVE_ENABLED', { infer: true })) {
+      return;
+    }
+
+    if (await this.quota.isPaused()) {
+      this.stopLivePoll();
+      return;
+    }
+
+    const hasLive = await this.ingestion.hasLiveGames();
+    if (!hasLive) {
+      this.stopLivePoll();
+      return;
+    }
+
+    if (!this.livePollActive) {
+      this.startLivePoll();
+      await this.runLiveTick();
+    }
+  }
+
+  async runLiveTick(): Promise<void> {
+    if (!this.config.get('INGEST_LIVE_ENABLED', { infer: true })) {
+      return;
+    }
+
+    if (await this.quota.isPaused()) {
+      this.logger.debug(
+        'Live ingest skipped: Odds API ingest paused (quota/auth)',
+      );
+      return;
+    }
+
+    if (!(await this.ingestion.hasLiveGames())) {
+      this.stopLivePoll();
+      return;
+    }
+
+    const intervalSeconds = this.config.get('INGEST_LIVE_INTERVAL_SECONDS', {
+      infer: true,
+    });
+    const lockTtl = Math.max(intervalSeconds - 5, 10);
+    const acquired = await this.lock.tryAcquire(INGEST_LIVE_LOCK_KEY, lockTtl);
+    if (!acquired) {
+      this.logger.debug('Live ingest skipped: lock held by another instance');
+      return;
+    }
+
+    try {
+      await this.ingestion.ingestLiveTick();
+    } catch (error) {
+      this.logger.error(
+        `Live ingest tick failed: ${(error as Error).message}`,
+        (error as Error).stack,
+      );
+    }
   }
 
   private registerCatalogScheduler(): void {
@@ -95,38 +189,6 @@ export class IngestionSchedulerService implements OnModuleInit, OnModuleDestroy 
     this.logger.log(
       `Catalog ingest scheduler enabled: cron "${cronExpr}" (INGEST_CATALOG_CRON)`,
     );
-  }
-
-  async runLiveTick(): Promise<void> {
-    if (!this.config.get('INGEST_LIVE_ENABLED', { infer: true })) {
-      return;
-    }
-
-    if (await this.quota.isPaused()) {
-      this.logger.debug(
-        'Live ingest skipped: Odds API ingest paused (quota/auth)',
-      );
-      return;
-    }
-
-    const intervalSeconds = this.config.get('INGEST_LIVE_INTERVAL_SECONDS', {
-      infer: true,
-    });
-    const lockTtl = Math.max(intervalSeconds - 5, 10);
-    const acquired = await this.lock.tryAcquire(INGEST_LIVE_LOCK_KEY, lockTtl);
-    if (!acquired) {
-      this.logger.debug('Live ingest skipped: lock held by another instance');
-      return;
-    }
-
-    try {
-      await this.ingestion.ingestLiveTick();
-    } catch (error) {
-      this.logger.error(
-        `Live ingest tick failed: ${(error as Error).message}`,
-        (error as Error).stack,
-      );
-    }
   }
 
   async runCatalogIngest(): Promise<void> {

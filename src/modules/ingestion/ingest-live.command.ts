@@ -5,7 +5,7 @@ import { IngestionService } from './ingestion.service';
 
 /**
  * Standalone entrypoint: `npm run ingest:live`.
- * Polls scores/odds only for leagues with LIVE or soon-to-start fixtures in the DB.
+ * Polls scores/odds only for leagues with active live games in the DB.
  */
 async function run(): Promise<void> {
   const logger = new Logger('IngestLiveCommand');
