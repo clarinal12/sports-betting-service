@@ -7,15 +7,18 @@ import { AllExceptionsFilter } from '../src/shared/filters/all-exceptions.filter
 import { IngestionService } from '../src/modules/ingestion/ingestion.service';
 import { CasinoGroupsService } from '../src/modules/casino-groups/casino-groups.service';
 import { PrismaService } from '../src/shared/database/prisma.service';
-import {
-  ACME_LEAGUE_PREFIXES,
-  BETZONE_LEAGUE_PREFIXES,
-  isLeagueOffered,
-} from '../src/modules/casino-groups/tenant-offering.config';
+
+/** E2E tenants: wider offering vs NBA-only (independent of seed tenant config). */
+const E2E_EVT_ACME_LEAGUE_KEYS = new Set([
+  'soccer_epl',
+  'soccer_laliga',
+  'basketball_nba',
+]);
+const E2E_EVT_BETZONE_LEAGUE_KEYS = new Set(['basketball_nba']);
 
 /**
  * Phase 2 e2e: live events + markets/odds, with tenant scoping.
- * acme enables basketball, baseball, american football, soccer; betzone basketball only.
+ * acme enables soccer + NBA; betzone NBA only.
  */
 describe('Events & markets (e2e)', () => {
   let app: INestApplication<App>;
@@ -72,7 +75,6 @@ describe('Events & markets (e2e)', () => {
       select: { id: true, key: true },
     });
     for (const league of leagues) {
-      const acmeEnabled = isLeagueOffered(league.key, ACME_LEAGUE_PREFIXES);
       await prisma.casinoGroupLeague.upsert({
         where: {
           casinoGroupId_leagueId: {
@@ -83,9 +85,9 @@ describe('Events & markets (e2e)', () => {
         create: {
           casinoGroupId: acme.id,
           leagueId: league.id,
-          enabled: acmeEnabled,
+          enabled: E2E_EVT_ACME_LEAGUE_KEYS.has(league.key),
         },
-        update: { enabled: acmeEnabled },
+        update: { enabled: E2E_EVT_ACME_LEAGUE_KEYS.has(league.key) },
       });
       await prisma.casinoGroupLeague.upsert({
         where: {
@@ -97,11 +99,9 @@ describe('Events & markets (e2e)', () => {
         create: {
           casinoGroupId: betzone.id,
           leagueId: league.id,
-          enabled: isLeagueOffered(league.key, BETZONE_LEAGUE_PREFIXES),
+          enabled: E2E_EVT_BETZONE_LEAGUE_KEYS.has(league.key),
         },
-        update: {
-          enabled: isLeagueOffered(league.key, BETZONE_LEAGUE_PREFIXES),
-        },
+        update: { enabled: E2E_EVT_BETZONE_LEAGUE_KEYS.has(league.key) },
       });
     }
   });

@@ -59,7 +59,6 @@ export class ProductService {
       throw new NotFoundException('Casino group not found');
     }
 
-    const results: { leagueId: string; key: string; enabled: boolean }[] = [];
     for (const item of dto.leagues) {
       const league = await this.prisma.league.findUnique({
         where: { id: item.leagueId },
@@ -105,14 +104,8 @@ export class ProductService {
           after: { enabled: item.enabled, leagueKey: league.key },
         });
       }
-
-      results.push({
-        leagueId: item.leagueId,
-        key: league.key,
-        enabled: item.enabled,
-      });
     }
 
-    return { casinoGroupId, leagues: results };
+    return this.listLeagues(casinoGroupId);
   }
 }

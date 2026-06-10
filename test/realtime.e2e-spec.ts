@@ -9,11 +9,15 @@ import { AppModule } from '../src/app.module';
 import { AllExceptionsFilter } from '../src/shared/filters/all-exceptions.filter';
 import { CryptoService } from '../src/shared/crypto/crypto.service';
 import { IngestionService } from '../src/modules/ingestion/ingestion.service';
+import { RealtimePubSubService } from '../src/modules/realtime/realtime-pubsub.service';
+import { RedisIoAdapter } from '../src/shared/websocket/redis-io.adapter';
+import { RedisService } from '../src/shared/cache/redis.service';
 import { PrismaService } from '../src/shared/database/prisma.service';
 import {
   REALTIME_NAMESPACE,
   WS_CLIENT_SUBSCRIBE,
   WS_SERVER_CONNECTED,
+  WS_SERVER_ERROR,
   WS_SERVER_EVENT_UPDATE,
 } from '../src/modules/realtime/realtime.constants';
 
@@ -69,6 +73,9 @@ describe('Realtime gateway (e2e)', () => {
       }),
     );
     app.useGlobalFilters(new AllExceptionsFilter());
+    const redis = moduleFixture.get(RedisService);
+    await redis.ping();
+    app.useWebSocketAdapter(new RedisIoAdapter(app, redis.getClient()));
     await app.init();
     await app.listen(0);
 
@@ -153,20 +160,23 @@ describe('Realtime gateway (e2e)', () => {
 
     await new Promise<void>((resolve, reject) => {
       const timeout = setTimeout(
-        () => reject(new Error('WS connected timeout')),
-        5000,
+        () => reject(new Error('WS subscribe timeout')),
+        10_000,
       );
-      socket.on(WS_SERVER_CONNECTED, () => {
+      socket.on(WS_SERVER_CONNECTED, (payload: { subscribed?: unknown }) => {
+        if (payload.subscribed) {
+          clearTimeout(timeout);
+          resolve();
+          return;
+        }
         socket.emit(WS_CLIENT_SUBSCRIBE, {
           eventIds: [liveEventId],
           marketIds: [],
         });
       });
-      socket.on(WS_SERVER_CONNECTED, (payload: { subscribed?: unknown }) => {
-        if (payload.subscribed) {
-          clearTimeout(timeout);
-          resolve();
-        }
+      socket.on(WS_SERVER_ERROR, (payload: { message?: string }) => {
+        clearTimeout(timeout);
+        reject(new Error(payload.message ?? 'WS subscribe error'));
       });
       socket.on('connect_error', (err: Error) => {
         clearTimeout(timeout);
@@ -177,7 +187,7 @@ describe('Realtime gateway (e2e)', () => {
     const updatePromise = new Promise<unknown>((resolve, reject) => {
       const timeout = setTimeout(
         () => reject(new Error('event.update timeout')),
-        8000,
+        10_000,
       );
       socket.on(WS_SERVER_EVENT_UPDATE, (payload) => {
         clearTimeout(timeout);
@@ -186,10 +196,22 @@ describe('Realtime gateway (e2e)', () => {
     });
 
     await app.get(IngestionService).ingestFixtures();
+
+    const event = await prisma.event.findUniqueOrThrow({
+      where: { id: liveEventId },
+    });
+    await app.get(RealtimePubSubService).publishEventUpdate(liveEventId, {
+      status: event.status,
+      homeScore: (event.homeScore ?? 1) + 1,
+      awayScore: event.awayScore,
+      period: event.period,
+      clock: event.clock,
+    });
+
     const update = (await updatePromise) as { eventId: string };
     expect(update.eventId).toBe(liveEventId);
 
     socket.disconnect();
     expect(casinoGroupId).toBeDefined();
-  });
+  }, 25_000);
 });

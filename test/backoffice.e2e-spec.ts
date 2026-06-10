@@ -252,6 +252,42 @@ describe('Back office (e2e)', () => {
     expect(created.body.merchantId).toBe('e2e-default-mid-merchant');
   });
 
+  it('updates league offering and returns the same shape as GET', async () => {
+    const acme = await prisma.casinoGroup.findUniqueOrThrow({
+      where: { slug: 'acme' },
+    });
+
+    const login = await request(app.getHttpServer())
+      .post('/api/v1/backoffice/auth/login')
+      .send({ email: 'bo-e2e@example.com', password: 'BoE2e123!' })
+      .expect(201);
+
+    const token = login.body.accessToken as string;
+
+    const leagues = await request(app.getHttpServer())
+      .get(`/api/v1/backoffice/product/leagues?casinoGroupId=${acme.id}`)
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+
+    const target = (leagues.body as { leagueId: string; enabled: boolean; name: string }[])[0];
+    expect(target).toBeDefined();
+
+    const updated = await request(app.getHttpServer())
+      .put(`/api/v1/backoffice/product/leagues?casinoGroupId=${acme.id}`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        leagues: [{ leagueId: target.leagueId, enabled: !target.enabled }],
+      })
+      .expect(200);
+
+    expect(Array.isArray(updated.body)).toBe(true);
+    const row = (updated.body as { leagueId: string; enabled: boolean; name: string }[]).find(
+      (league) => league.leagueId === target.leagueId,
+    );
+    expect(row?.enabled).toBe(!target.enabled);
+    expect(row?.name).toBeDefined();
+  });
+
   it('returns trading exposure and staff bet list for acme', async () => {
     const acme = await prisma.casinoGroup.findUniqueOrThrow({
       where: { slug: 'acme' },
