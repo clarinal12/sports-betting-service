@@ -51,7 +51,10 @@ const TENANT_OPERATOR_PERMISSIONS: StaffPermission[] = STAFF_PERMISSIONS.filter(
   (p) =>
     p !== 'tenant.create' &&
     p !== 'staff.read' &&
-    p !== 'settlement.run',
+    p !== 'settlement.run' &&
+    p !== 'staff.tenant_access.read' &&
+    p !== 'staff.tenant_access.update' &&
+    p !== 'staff.operator.update',
 );
 
 const ROLE_PERMISSIONS: Record<StaffRole, StaffPermission[]> = {

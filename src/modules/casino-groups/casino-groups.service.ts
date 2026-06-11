@@ -4,6 +4,7 @@ import { PrismaService } from '../../shared/database/prisma.service';
 import { RedisService } from '../../shared/cache/redis.service';
 import { CryptoService } from '../../shared/crypto/crypto.service';
 import { CasinoGroupContext } from './casino-group.types';
+import { normalizeWalletApiUrl } from '../wallet/wallet-auth.util';
 
 const CACHE_PREFIX = 'casino-group:slug:';
 const CACHE_ID_PREFIX = 'casino-group:id:';
@@ -19,6 +20,12 @@ const GROUP_SELECT = {
 
 export interface MerchantCredentials {
   group: CasinoGroupContext;
+  sportsSecret: string;
+}
+
+export interface MerchantWalletConfig {
+  apiUrl: string;
+  merchantId: string;
   sportsSecret: string;
 }
 
@@ -95,6 +102,32 @@ export class CasinoGroupsService {
 
     const { sportsSecret, ...group } = row;
     return { group, sportsSecret: this.crypto.decrypt(sportsSecret) };
+  }
+
+  /**
+   * Per-tenant wallet API settings for HTTP wallet integration.
+   */
+  async getWalletConfig(
+    casinoGroupId: string,
+  ): Promise<MerchantWalletConfig | null> {
+    const row = await this.prisma.casinoGroup.findFirst({
+      where: { id: casinoGroupId, status: CasinoGroupStatus.ACTIVE },
+      select: {
+        walletApiUrl: true,
+        merchantId: true,
+        sportsSecret: true,
+      },
+    });
+
+    if (!row?.walletApiUrl?.trim() || !row.merchantId || !row.sportsSecret) {
+      return null;
+    }
+
+    return {
+      apiUrl: normalizeWalletApiUrl(row.walletApiUrl),
+      merchantId: row.merchantId,
+      sportsSecret: this.crypto.decrypt(row.sportsSecret),
+    };
   }
 
   async invalidate(group: CasinoGroupContext): Promise<void> {

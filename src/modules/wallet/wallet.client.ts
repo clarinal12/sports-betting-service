@@ -1,15 +1,14 @@
 import { HttpService } from '@nestjs/axios';
-import {
-  Injectable,
-  Logger,
-} from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+import { Injectable, Logger } from '@nestjs/common';
 import { isAxiosError } from 'axios';
 import { firstValueFrom } from 'rxjs';
-import { EnvConfig } from '../../shared/config/env.validation';
+import { CasinoGroupsService } from '../casino-groups/casino-groups.service';
 import { CircuitBreaker } from '../../shared/resilience/circuit-breaker';
+import { merchantBasicAuthHeader } from './wallet-auth.util';
 import {
   WalletBalance,
+  WalletBatchCreditRequest,
+  WalletBatchCreditResult,
   WalletCreditRequest,
   WalletCreditResult,
   WalletPort,
@@ -18,7 +17,7 @@ import {
   WalletReserveResult,
 } from './wallet.port';
 
-const REQUEST_TIMEOUT_MS = 2000;
+const REQUEST_TIMEOUT_MS = 5000;
 
 @Injectable()
 export class WalletHttpClient implements WalletPort {
@@ -30,20 +29,24 @@ export class WalletHttpClient implements WalletPort {
 
   constructor(
     private readonly http: HttpService,
-    private readonly config: ConfigService<EnvConfig, true>,
+    private readonly casinoGroups: CasinoGroupsService,
   ) {}
 
   async getBalance(
     userId: string,
     casinoGroupId: string,
   ): Promise<WalletBalance> {
-    const baseUrl = this.requireBaseUrl();
+    const config = await this.requireWalletConfig(casinoGroupId);
     try {
       return await this.breaker.execute(async () => {
         const response = await firstValueFrom(
           this.http.get<{ balance: string | number; currency: string }>(
-            `${baseUrl}/wallet/balance`,
-            { params: { userId, casinoGroupId }, timeout: REQUEST_TIMEOUT_MS },
+            `${config.apiUrl}/balance`,
+            {
+              params: { userId },
+              timeout: REQUEST_TIMEOUT_MS,
+              headers: this.authHeaders(config),
+            },
           ),
         );
         return {
@@ -62,29 +65,33 @@ export class WalletHttpClient implements WalletPort {
   }
 
   async reserve(request: WalletReserveRequest): Promise<WalletReserveResult> {
-    const baseUrl = this.requireBaseUrl();
+    const config = await this.requireWalletConfig(request.casinoGroupId);
     try {
       return await this.breaker.execute(async () => {
         const response = await firstValueFrom(
-          this.http.post<{ reservationId: string }>(
-            `${baseUrl}/wallet/reserve`,
+          this.http.post<{ transactionId: string }>(
+            `${config.apiUrl}/transaction`,
             {
               userId: request.userId,
-              casinoGroupId: request.casinoGroupId,
               amount: request.amount,
               currency: request.currency,
               reference: request.reference,
               idempotencyKey: request.idempotencyKey,
+              action: 'DEBIT',
+              type: 'BET',
             },
-            { timeout: REQUEST_TIMEOUT_MS },
+            {
+              timeout: REQUEST_TIMEOUT_MS,
+              headers: this.authHeaders(config),
+            },
           ),
         );
-        return { reservationId: response.data.reservationId };
+        return { reservationId: response.data.transactionId };
       });
     } catch (error) {
       if (isAxiosError(error)) {
         const status = error.response?.status;
-        if (status === 402 || status === 409) {
+        if (status === 402 || status === 409 || status === 400) {
           throw new WalletReserveError(
             'Insufficient balance',
             'INSUFFICIENT_FUNDS',
@@ -92,7 +99,7 @@ export class WalletHttpClient implements WalletPort {
         }
       }
       this.logger.warn(
-        `Wallet reserve failed for bet ${request.reference}: ${
+        `Wallet bet debit failed for bet ${request.reference}: ${
           (error as Error).message
         }`,
       );
@@ -101,29 +108,32 @@ export class WalletHttpClient implements WalletPort {
   }
 
   async creditPayout(request: WalletCreditRequest): Promise<WalletCreditResult> {
-    const baseUrl = this.requireBaseUrl();
+    const config = await this.requireWalletConfig(request.casinoGroupId);
     try {
       return await this.breaker.execute(async () => {
         const response = await firstValueFrom(
           this.http.post<{ transactionId: string }>(
-            `${baseUrl}/wallet/credit`,
+            `${config.apiUrl}/transaction`,
             {
               userId: request.userId,
-              casinoGroupId: request.casinoGroupId,
               amount: request.amount,
               currency: request.currency,
               reference: request.reference,
               idempotencyKey: request.idempotencyKey,
-              type: request.type,
+              action: 'CREDIT',
+              type: request.type === 'WIN' ? 'WIN' : 'VOID',
             },
-            { timeout: REQUEST_TIMEOUT_MS },
+            {
+              timeout: REQUEST_TIMEOUT_MS,
+              headers: this.authHeaders(config),
+            },
           ),
         );
         return { transactionId: response.data.transactionId };
       });
     } catch (error) {
       this.logger.warn(
-        `Wallet credit failed for bet ${request.reference}: ${
+        `Wallet void credit failed for bet ${request.reference}: ${
           (error as Error).message
         }`,
       );
@@ -131,11 +141,70 @@ export class WalletHttpClient implements WalletPort {
     }
   }
 
-  private requireBaseUrl(): string {
-    const baseUrl = this.config.get('USER_SERVICE_BASE_URL', { infer: true });
-    if (!baseUrl) {
-      throw new WalletReserveError('User service not configured', 'UNAVAILABLE');
+  async creditPayoutBatch(
+    request: WalletBatchCreditRequest,
+  ): Promise<WalletBatchCreditResult> {
+    if (request.items.length === 0) {
+      return { transactionIds: [] };
     }
-    return baseUrl;
+
+    const config = await this.requireWalletConfig(request.casinoGroupId);
+    try {
+      return await this.breaker.execute(async () => {
+        const response = await firstValueFrom(
+          this.http.post<{ transactionIds: string[] }>(
+            `${config.apiUrl}/batch-transactions`,
+            {
+              batchId: request.batchId,
+              transactions: request.items.map((item) => ({
+                userId: item.userId,
+                amount: item.amount,
+                currency: item.currency,
+                reference: item.reference,
+                idempotencyKey: item.idempotencyKey,
+                type: item.type,
+              })),
+            },
+            {
+              timeout: REQUEST_TIMEOUT_MS,
+              headers: this.authHeaders(config),
+            },
+          ),
+        );
+        return {
+          transactionIds: response.data.transactionIds ?? [],
+        };
+      });
+    } catch (error) {
+      this.logger.warn(
+        `Wallet batch settlement failed (${request.items.length} items): ${
+          (error as Error).message
+        }`,
+      );
+      throw new WalletReserveError('Wallet service unavailable', 'UNAVAILABLE');
+    }
+  }
+
+  private authHeaders(config: {
+    merchantId: string;
+    sportsSecret: string;
+  }): Record<string, string> {
+    return {
+      Authorization: merchantBasicAuthHeader(
+        config.merchantId,
+        config.sportsSecret,
+      ),
+    };
+  }
+
+  private async requireWalletConfig(casinoGroupId: string) {
+    const config = await this.casinoGroups.getWalletConfig(casinoGroupId);
+    if (!config) {
+      throw new WalletReserveError(
+        'Merchant wallet API not configured',
+        'UNAVAILABLE',
+      );
+    }
+    return config;
   }
 }

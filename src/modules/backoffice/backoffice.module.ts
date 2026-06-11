@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { CasinoGroupsModule } from '../casino-groups/casino-groups.module';
 import { IngestionModule } from '../ingestion/ingestion.module';
 import { SettlementModule } from '../settlement/settlement.module';
 import { WalletModule } from '../wallet/wallet.module';
@@ -29,7 +30,7 @@ import { ComplianceController } from './compliance/compliance.controller';
 import { ComplianceService } from './compliance/compliance.service';
 
 @Module({
-  imports: [WalletModule, SettlementModule, IngestionModule],
+  imports: [WalletModule, SettlementModule, IngestionModule, CasinoGroupsModule],
   controllers: [
     StaffAuthController,
     StaffProfileController,

@@ -38,6 +38,6 @@ export class ProductController {
     @Query('casinoGroupId') casinoGroupId?: string,
   ) {
     const groupId = await this.scope.resolveCasinoGroupId(staff, casinoGroupId);
-    return this.product.updateLeagues(groupId, body, staff.staffUserId);
+    return this.product.updateLeagues(groupId, body, staff);
   }
 }

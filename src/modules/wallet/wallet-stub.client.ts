@@ -5,6 +5,8 @@ import { EnvConfig } from '../../shared/config/env.validation';
 import { stakeLessOrEqualBalance } from '../../shared/decimal/bet-math';
 import {
   WalletBalance,
+  WalletBatchCreditRequest,
+  WalletBatchCreditResult,
   WalletCreditRequest,
   WalletCreditResult,
   WalletPort,
@@ -69,6 +71,25 @@ export class WalletStubClient implements WalletPort {
       `Stub ${request.type} ${request.amount} for user ${request.userId} (ref ${request.reference})`,
     );
     return { transactionId };
+  }
+
+  async creditPayoutBatch(
+    request: WalletBatchCreditRequest,
+  ): Promise<WalletBatchCreditResult> {
+    const transactionIds: string[] = [];
+    for (const item of request.items) {
+      const result = await this.creditPayout({
+        userId: item.userId,
+        casinoGroupId: request.casinoGroupId,
+        amount: item.amount,
+        currency: item.currency,
+        reference: item.reference,
+        idempotencyKey: item.idempotencyKey,
+        type: item.type,
+      });
+      transactionIds.push(result.transactionId);
+    }
+    return { transactionIds };
   }
 
   private balanceFor(userId: string): Prisma.Decimal {

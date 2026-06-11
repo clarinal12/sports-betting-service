@@ -36,6 +36,25 @@ export interface WalletCreditResult {
   transactionId: string;
 }
 
+export interface WalletBatchCreditItem {
+  userId: string;
+  amount: string;
+  currency: string;
+  reference: string;
+  idempotencyKey: string;
+  type: WalletCreditType;
+}
+
+export interface WalletBatchCreditRequest {
+  casinoGroupId: string;
+  batchId: string;
+  items: WalletBatchCreditItem[];
+}
+
+export interface WalletBatchCreditResult {
+  transactionIds: string[];
+}
+
 export class WalletReserveError extends Error {
   constructor(
     message: string,
@@ -53,6 +72,9 @@ export interface WalletPort {
   getBalance(userId: string, casinoGroupId: string): Promise<WalletBalance>;
   reserve(request: WalletReserveRequest): Promise<WalletReserveResult>;
   creditPayout(request: WalletCreditRequest): Promise<WalletCreditResult>;
+  creditPayoutBatch(
+    request: WalletBatchCreditRequest,
+  ): Promise<WalletBatchCreditResult>;
 }
 
 export const WALLET_PORT = Symbol('WALLET_PORT');

@@ -18,3 +18,5 @@ process.env.RESULTS_INGEST_ENABLED = 'false';
 process.env.SETTLEMENT_ENABLED = 'false';
 process.env.WALLET_PROVIDER = 'stub';
 process.env.METRICS_ENABLED = 'false';
+/** Catalog scope for backoffice league offering + tests (matches mock NBA league). */
+process.env.ODDS_API_SPORT_KEYS = process.env.ODDS_API_SPORT_KEYS ?? 'basketball_nba';

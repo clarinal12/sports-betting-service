@@ -36,8 +36,11 @@ describe('staff-permissions', () => {
     expect(perms).not.toContain('tenant.create');
     expect(perms).not.toContain('staff.read');
     expect(perms).not.toContain('settlement.run');
+    expect(perms).not.toContain('staff.tenant_access.read');
+    expect(perms).not.toContain('staff.operator.update');
     expect(perms).toContain('tenant.update');
     expect(perms).toContain('settlement.read');
+    expect(perms).toContain('staff.operator.read');
   });
 
   it('settlement role can view queue but not run settlement', () => {

@@ -238,7 +238,17 @@ Decimal odds are returned as **strings** (e.g. `"1.95"`) to preserve precision.
 { "selectionIds": ["<selectionId>"], "stake": "10.00" }
 ```
 
-Local dev uses `WALLET_PROVIDER=stub` (default balance `WALLET_STUB_BALANCE`). Production integrates `POST /wallet/reserve` on the user service when `WALLET_PROVIDER=http`. Failed wallet debits are retried via the wallet outbox worker (`WALLET_OUTBOX_POLL_SECONDS`).
+Local dev uses `WALLET_PROVIDER=stub` (default balance `WALLET_STUB_BALANCE`). Production uses `WALLET_PROVIDER=http` and a per-merchant **wallet API URL** configured in backoffice (`Settings → Tenant → Wallet API URL`). Each merchant must also have `merchantId` and `sportsSecret` (from onboarding).
+
+When `WALLET_PROVIDER=http`, the service calls the merchant API with **Basic** auth: `Authorization: Basic base64(merchantId:sportsSecret)`.
+
+| Merchant endpoint | Used for |
+|-------------------|----------|
+| `GET {walletApiUrl}/balance?userId=` | Balance check before bet |
+| `POST {walletApiUrl}/transaction` | Bet debit (`action: DEBIT`, `type: BET`) and void refund (`action: CREDIT`, `type: VOID`) |
+| `POST {walletApiUrl}/batch-transactions` | Settlement payouts (`type: WIN` or `REFUND`) |
+
+Failed wallet debits are retried via the wallet outbox worker (`WALLET_OUTBOX_POLL_SECONDS`).
 
 #### Bet leg snapshot (at placement)
 

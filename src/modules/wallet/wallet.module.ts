@@ -1,13 +1,14 @@
 import { HttpModule } from '@nestjs/axios';
 import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { CasinoGroupsModule } from '../casino-groups/casino-groups.module';
 import { EnvConfig } from '../../shared/config/env.validation';
 import { WalletHttpClient } from './wallet.client';
 import { WALLET_PORT } from './wallet.port';
 import { WalletStubClient } from './wallet-stub.client';
 
 @Module({
-  imports: [HttpModule],
+  imports: [HttpModule, CasinoGroupsModule],
   providers: [
     WalletStubClient,
     WalletHttpClient,

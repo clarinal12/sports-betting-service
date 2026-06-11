@@ -114,6 +114,37 @@ export function resolveSportKeys(
   return [...resolved];
 }
 
+/** Match configured ingest keys against league keys already in the catalog (DB). */
+export function resolveCatalogLeagueKeys(
+  configured: string[],
+  catalogLeagueKeys: string[],
+): string[] {
+  if (configured.length === 1 && configured[0] === 'all') {
+    return [...catalogLeagueKeys];
+  }
+
+  const resolved = new Set<string>();
+  const knownKeys = new Set(catalogLeagueKeys);
+
+  for (const entry of configured) {
+    if (entry === 'all') {
+      continue;
+    }
+    if (knownKeys.has(entry)) {
+      resolved.add(entry);
+      continue;
+    }
+    const prefix = `${entry}_`;
+    for (const key of catalogLeagueKeys) {
+      if (key.startsWith(prefix)) {
+        resolved.add(key);
+      }
+    }
+  }
+
+  return [...resolved];
+}
+
 export function resolveSportConfig(
   sportKey: string,
   apiSport?: OddsApiSport,

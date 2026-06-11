@@ -4,6 +4,7 @@ import {
   resolveRegions,
   resolveSportConfig,
   resolveSportKeys,
+  resolveCatalogLeagueKeys,
 } from './odds-api.config';
 import type { OddsApiSport } from './odds-api.types';
 
@@ -163,5 +164,23 @@ describe('odds-api.config', () => {
     expect(
       resolveSportConfig('cricket_test_match', apiSports[4]).groupSportKey,
     ).toBe('cricket');
+  });
+
+  it('resolveCatalogLeagueKeys filters DB leagues by configured ingest scope', () => {
+    const catalog = [
+      'soccer_epl',
+      'soccer_laliga',
+      'basketball_nba',
+      'basketball_wnba',
+    ];
+
+    expect(resolveCatalogLeagueKeys(['basketball_nba'], catalog)).toEqual([
+      'basketball_nba',
+    ]);
+    expect(resolveCatalogLeagueKeys(['basketball'], catalog)).toEqual([
+      'basketball_nba',
+      'basketball_wnba',
+    ]);
+    expect(resolveCatalogLeagueKeys(['all'], catalog)).toEqual(catalog);
   });
 });

@@ -52,9 +52,7 @@ export const envSchema = z.object({
     .transform((value) => value === 'true'),
   /// Clock-skew tolerance (seconds) when verifying operator launch tokens.
   OPERATOR_JWT_CLOCK_SKEW: z.coerce.number().int().min(0).max(300).default(5),
-  /// Base URL of the external user/wallet service (required when WALLET_PROVIDER=http).
-  USER_SERVICE_BASE_URL: z.string().url().optional(),
-  /// `stub` = in-memory balance (dev/e2e); `http` = call USER_SERVICE_BASE_URL.
+  /// `stub` = in-memory balance (dev/e2e); `http` = per-merchant walletApiUrl on CasinoGroup.
   WALLET_PROVIDER: z.enum(['stub', 'http']).default('stub'),
   /// Starting balance per user for stub wallet (decimal string).
   WALLET_STUB_BALANCE: z.string().default('10000.00'),
@@ -187,14 +185,6 @@ export function validateEnv(
   }
 
   const env = result.data;
-
-  if (env.WALLET_PROVIDER === 'http' && env.NODE_ENV !== 'test') {
-    if (!env.USER_SERVICE_BASE_URL?.trim()) {
-      throw new Error(
-        'Environment validation failed:\n  - USER_SERVICE_BASE_URL is required when WALLET_PROVIDER=http',
-      );
-    }
-  }
 
   if (env.FIXTURE_PROVIDER === 'odds-api' && env.NODE_ENV !== 'test') {
     if (!env.ODDS_API_KEY?.trim()) {

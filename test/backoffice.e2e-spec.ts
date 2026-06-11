@@ -34,6 +34,28 @@ describe('Back office (e2e)', () => {
     const staffAuth = app.get(StaffAuthService);
     await app.get(IngestionService).ingestFixtures();
 
+    const acmeGroup = await prisma.casinoGroup.findUniqueOrThrow({
+      where: { slug: 'acme' },
+    });
+    const nbaLeague = await prisma.league.findUniqueOrThrow({
+      where: { key: 'basketball_nba' },
+    });
+    await prisma.casinoGroupLeague.upsert({
+      where: {
+        casinoGroupId_leagueId: {
+          casinoGroupId: acmeGroup.id,
+          leagueId: nbaLeague.id,
+        },
+      },
+      create: {
+        casinoGroupId: acmeGroup.id,
+        leagueId: nbaLeague.id,
+        enabled: true,
+        platformLocked: false,
+      },
+      update: { enabled: true, platformLocked: false },
+    });
+
     await prisma.staffUser.upsert({
       where: { email: 'bo-e2e@example.com' },
       create: {
@@ -226,10 +248,10 @@ describe('Back office (e2e)', () => {
       .set('Authorization', `Bearer ${token}`)
       .expect(200);
 
-    const nba = (leagues.body as { key: string; enabled: boolean }[]).find(
-      (l) => l.key === 'basketball_nba',
-    );
-    expect(nba?.enabled).toBe(true);
+    expect(leagues.body).toHaveLength(1);
+    const nba = (leagues.body as { key: string; enabled: boolean }[])[0];
+    expect(nba.key).toBe('basketball_nba');
+    expect(nba.enabled).toBe(true);
   });
 
   it('defaults merchantId from slug when omitted', async () => {
@@ -252,6 +274,81 @@ describe('Back office (e2e)', () => {
     expect(created.body.merchantId).toBe('e2e-default-mid-merchant');
   });
 
+  it('prevents tenant operator from re-enabling platform-disabled league', async () => {
+    const acme = await prisma.casinoGroup.findUniqueOrThrow({
+      where: { slug: 'acme' },
+    });
+
+    const superLogin = await request(app.getHttpServer())
+      .post('/api/v1/backoffice/auth/login')
+      .send({ email: 'bo-e2e@example.com', password: 'BoE2e123!' })
+      .expect(201);
+    const superToken = superLogin.body.accessToken as string;
+
+    const leagues = await request(app.getHttpServer())
+      .get(`/api/v1/backoffice/product/leagues?casinoGroupId=${acme.id}`)
+      .set('Authorization', `Bearer ${superToken}`)
+      .expect(200);
+
+    const target = (
+      leagues.body as { leagueId: string; enabled: boolean; platformLocked: boolean }[]
+    )[0];
+    expect(target.enabled).toBe(true);
+    expect(target.platformLocked).toBe(false);
+
+    await request(app.getHttpServer())
+      .put(`/api/v1/backoffice/product/leagues?casinoGroupId=${acme.id}`)
+      .set('Authorization', `Bearer ${superToken}`)
+      .send({
+        leagues: [{ leagueId: target.leagueId, enabled: false }],
+      })
+      .expect(200)
+      .expect((res) => {
+        const row = (
+          res.body as {
+            leagueId: string;
+            enabled: boolean;
+            platformLocked: boolean;
+          }[]
+        ).find((league) => league.leagueId === target.leagueId);
+        expect(row?.enabled).toBe(false);
+        expect(row?.platformLocked).toBe(true);
+      });
+
+    const opLogin = await request(app.getHttpServer())
+      .post('/api/v1/backoffice/auth/login')
+      .send({ email: 'op-e2e@example.com', password: 'OpE2e123!' })
+      .expect(201);
+    const opToken = opLogin.body.accessToken as string;
+
+    await request(app.getHttpServer())
+      .put(`/api/v1/backoffice/product/leagues?casinoGroupId=${acme.id}`)
+      .set('Authorization', `Bearer ${opToken}`)
+      .send({
+        leagues: [{ leagueId: target.leagueId, enabled: true }],
+      })
+      .expect(400);
+
+    await request(app.getHttpServer())
+      .put(`/api/v1/backoffice/product/leagues?casinoGroupId=${acme.id}`)
+      .set('Authorization', `Bearer ${superToken}`)
+      .send({
+        leagues: [{ leagueId: target.leagueId, enabled: true }],
+      })
+      .expect(200)
+      .expect((res) => {
+        const row = (
+          res.body as {
+            leagueId: string;
+            enabled: boolean;
+            platformLocked: boolean;
+          }[]
+        ).find((league) => league.leagueId === target.leagueId);
+        expect(row?.enabled).toBe(true);
+        expect(row?.platformLocked).toBe(false);
+      });
+  });
+
   it('updates league offering and returns the same shape as GET', async () => {
     const acme = await prisma.casinoGroup.findUniqueOrThrow({
       where: { slug: 'acme' },
@@ -269,7 +366,14 @@ describe('Back office (e2e)', () => {
       .set('Authorization', `Bearer ${token}`)
       .expect(200);
 
-    const target = (leagues.body as { leagueId: string; enabled: boolean; name: string }[])[0];
+    const target = (
+      leagues.body as {
+        leagueId: string;
+        enabled: boolean;
+        platformLocked: boolean;
+        name: string;
+      }[]
+    )[0];
     expect(target).toBeDefined();
 
     const updated = await request(app.getHttpServer())
@@ -281,9 +385,14 @@ describe('Back office (e2e)', () => {
       .expect(200);
 
     expect(Array.isArray(updated.body)).toBe(true);
-    const row = (updated.body as { leagueId: string; enabled: boolean; name: string }[]).find(
-      (league) => league.leagueId === target.leagueId,
-    );
+    const row = (
+      updated.body as {
+        leagueId: string;
+        enabled: boolean;
+        platformLocked: boolean;
+        name: string;
+      }[]
+    ).find((league) => league.leagueId === target.leagueId);
     expect(row?.enabled).toBe(!target.enabled);
     expect(row?.name).toBeDefined();
   });

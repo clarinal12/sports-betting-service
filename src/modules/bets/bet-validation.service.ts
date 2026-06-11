@@ -90,7 +90,7 @@ export class BetValidationService {
                     league: {
                       select: {
                         groups: {
-                          where: { enabled: true },
+                          where: { casinoGroupId, enabled: true },
                           select: { casinoGroupId: true },
                         },
                       },

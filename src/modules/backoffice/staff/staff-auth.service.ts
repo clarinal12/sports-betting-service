@@ -144,6 +144,34 @@ export class StaffAuthService {
     return argon2.hash(plaintext);
   }
 
+  async changePassword(
+    staffUserId: string,
+    currentPassword: string,
+    newPassword: string,
+  ): Promise<void> {
+    const user = await this.prisma.staffUser.findUnique({
+      where: { id: staffUserId },
+      select: { id: true, passwordHash: true, status: true },
+    });
+    if (!user || user.status !== StaffUserStatus.ACTIVE) {
+      throw new UnauthorizedException('Invalid credentials');
+    }
+
+    const valid = await argon2.verify(user.passwordHash, currentPassword);
+    if (!valid) {
+      throw new UnauthorizedException('Current password is incorrect');
+    }
+
+    const passwordHash = await this.hashPassword(newPassword);
+    await this.prisma.$transaction(async (tx) => {
+      await tx.staffUser.update({
+        where: { id: staffUserId },
+        data: { passwordHash },
+      });
+      await tx.staffSession.deleteMany({ where: { staffUserId } });
+    });
+  }
+
   private hashRefreshToken(token: string): string {
     return createHash('sha256').update(token).digest('hex');
   }

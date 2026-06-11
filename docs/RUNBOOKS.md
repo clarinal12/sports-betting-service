@@ -108,7 +108,7 @@ curl -s http://localhost:3001/metrics   # when METRICS_ENABLED=true
 
 **Steps**
 
-1. Check user service: `USER_SERVICE_BASE_URL`, reserve endpoint health.
+1. Check merchant `walletApiUrl` in backoffice tenant settings and client `/balance`, `/transaction` health.
 2. Inspect `wallet_outbox` for `lastError`, `nextRetryAt`.
 3. `WALLET_OUTBOX_POLL_SECONDS` controls retry cadence.
 4. Players can retry with the **same** `Idempotency-Key` once wallet is healthy.

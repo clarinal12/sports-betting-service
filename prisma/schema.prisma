@@ -102,6 +102,8 @@ model CasinoGroup {
   /// Per-merchant HMAC secret for verifying launch tokens, encrypted at rest.
   /// Never returned by any API.
   sportsSecret    String?
+  /// Client wallet API base URL (balance, transaction, batch-transactions).
+  walletApiUrl    String?
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @updatedAt
 
@@ -185,9 +187,11 @@ model Fixture {
 
 /// Join table: which leagues a casino group offers to its players.
 model CasinoGroupLeague {
-  casinoGroupId String
-  leagueId      String
-  enabled       Boolean @default(true)
+  casinoGroupId  String
+  leagueId       String
+  enabled        Boolean @default(true)
+  /// Set when platform staff disable; tenant operators cannot re-enable until platform clears it.
+  platformLocked Boolean @default(false)
 
   casinoGroup CasinoGroup @relation(fields: [casinoGroupId], references: [id], onDelete: Cascade)
   league      League      @relation(fields: [leagueId], references: [id], onDelete: Cascade)

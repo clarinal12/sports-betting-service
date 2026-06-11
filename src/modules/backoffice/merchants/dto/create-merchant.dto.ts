@@ -3,6 +3,7 @@ import {
   IsEmail,
   IsOptional,
   IsString,
+  IsUrl,
   Matches,
   MinLength,
 } from 'class-validator';
@@ -70,4 +71,12 @@ export class CreateMerchantDto {
   @IsString()
   @MinLength(8)
   operatorPassword?: string;
+
+  @ApiPropertyOptional({
+    example: 'https://wallet.client.example.com/api',
+    description: 'Client wallet API base URL',
+  })
+  @IsOptional()
+  @IsUrl({ require_tld: false })
+  walletApiUrl?: string;
 }

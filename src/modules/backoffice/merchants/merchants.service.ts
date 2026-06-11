@@ -9,6 +9,7 @@ import { isLeagueOffered } from '../../casino-groups/tenant-offering.config';
 import { CryptoService } from '../../../shared/crypto/crypto.service';
 import { PrismaService } from '../../../shared/database/prisma.service';
 import { AuditService } from '../../../shared/audit/audit.service';
+import { normalizeWalletApiUrl } from '../../wallet/wallet-auth.util';
 import { CreateMerchantDto } from './dto/create-merchant.dto';
 import { defaultMerchantIdFromSlug } from './merchant-id.util';
 import { defaultOperatorEmail } from './operator-email.util';
@@ -57,6 +58,9 @@ export class MerchantsService {
             defaultCurrency: dto.defaultCurrency ?? 'USD',
             status: CasinoGroupStatus.ACTIVE,
             sportsSecret: this.crypto.encrypt(sportsSecretPlain),
+            walletApiUrl: dto.walletApiUrl
+              ? normalizeWalletApiUrl(dto.walletApiUrl)
+              : null,
           },
         });
 
@@ -64,7 +68,7 @@ export class MerchantsService {
           select: { id: true, key: true },
         });
         for (const league of leagues) {
-          const enabled = isLeagueOffered(league.key, offeredKeys);
+          const offered = isLeagueOffered(league.key, offeredKeys);
           await tx.casinoGroupLeague.upsert({
             where: {
               casinoGroupId_leagueId: {
@@ -75,9 +79,9 @@ export class MerchantsService {
             create: {
               casinoGroupId: created.id,
               leagueId: league.id,
-              enabled,
+              enabled: offered,
             },
-            update: { enabled },
+            update: { enabled: offered },
           });
         }
 
@@ -139,6 +143,7 @@ export class MerchantsService {
         after: {
           slug: group.slug,
           merchantId: group.merchantId,
+          walletApiUrl: group.walletApiUrl,
           enabledLeagueKeys: offeredKeys,
           tenantAccessAutoGranted: autoGrantTenantAccess,
           operatorEmail,
@@ -153,6 +158,7 @@ export class MerchantsService {
         merchantId: group.merchantId,
         defaultCurrency: group.defaultCurrency,
         status: group.status,
+        walletApiUrl: group.walletApiUrl,
         sportsSecret: sportsSecretPlain,
         enabledLeagueKeys: offeredKeys,
         operatorAdmin: {
