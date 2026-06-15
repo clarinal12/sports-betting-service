@@ -1,15 +1,20 @@
 import { HttpModule } from '@nestjs/axios';
 import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { AuthModule } from '../auth/auth.module';
 import { CasinoGroupsModule } from '../casino-groups/casino-groups.module';
 import { EnvConfig } from '../../shared/config/env.validation';
+import { WalletController } from './wallet.controller';
 import { WalletHttpClient } from './wallet.client';
 import { WALLET_PORT } from './wallet.port';
+import { WalletService } from './wallet.service';
 import { WalletStubClient } from './wallet-stub.client';
 
 @Module({
-  imports: [HttpModule, CasinoGroupsModule],
+  imports: [HttpModule, CasinoGroupsModule, AuthModule],
+  controllers: [WalletController],
   providers: [
+    WalletService,
     WalletStubClient,
     WalletHttpClient,
     {
@@ -28,6 +33,6 @@ import { WalletStubClient } from './wallet-stub.client';
       inject: [ConfigService, WalletStubClient, WalletHttpClient],
     },
   ],
-  exports: [WALLET_PORT],
+  exports: [WALLET_PORT, WalletService],
 })
 export class WalletModule {}

@@ -40,21 +40,37 @@ export class WalletHttpClient implements WalletPort {
     try {
       return await this.breaker.execute(async () => {
         const response = await firstValueFrom(
-          this.http.get<{ balance: string | number; currency: string }>(
+          this.http.post<{
+            success: boolean;
+            message: string | number;
+            errorCode: number;
+          }>(
             `${config.apiUrl}/balance`,
+            { userCode: userId },
             {
-              params: { userId },
               timeout: REQUEST_TIMEOUT_MS,
-              headers: this.authHeaders(config),
+              headers: {
+                ...this.authHeaders(config),
+                'Content-Type': 'application/json',
+              },
             },
           ),
         );
+        if (!response.data.success || response.data.errorCode !== 0) {
+          throw new WalletReserveError(
+            'Wallet balance lookup rejected',
+            'UNAVAILABLE',
+          );
+        }
         return {
-          balance: String(response.data.balance),
-          currency: response.data.currency,
+          balance: String(response.data.message),
+          currency: config.currency,
         };
       });
     } catch (error) {
+      if (error instanceof WalletReserveError) {
+        throw error;
+      }
       this.logger.warn(
         `Wallet balance lookup failed for user ${userId}: ${
           (error as Error).message

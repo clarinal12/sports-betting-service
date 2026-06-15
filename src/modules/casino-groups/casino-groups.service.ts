@@ -27,6 +27,7 @@ export interface MerchantWalletConfig {
   apiUrl: string;
   merchantId: string;
   sportsSecret: string;
+  currency: string;
 }
 
 @Injectable()
@@ -116,6 +117,7 @@ export class CasinoGroupsService {
         walletApiUrl: true,
         merchantId: true,
         sportsSecret: true,
+        defaultCurrency: true,
       },
     });
 
@@ -127,6 +129,7 @@ export class CasinoGroupsService {
       apiUrl: normalizeWalletApiUrl(row.walletApiUrl),
       merchantId: row.merchantId,
       sportsSecret: this.crypto.decrypt(row.sportsSecret),
+      currency: row.defaultCurrency,
     };
   }
 

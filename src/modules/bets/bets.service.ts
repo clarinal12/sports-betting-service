@@ -11,10 +11,7 @@ import { UserContext } from '../auth/user-context.types';
 import { PrismaService } from '../../shared/database/prisma.service';
 import { MetricsService } from '../../shared/metrics/metrics.service';
 import { stakeLessOrEqualBalance } from '../../shared/decimal/bet-math';
-import {
-  WALLET_PORT,
-  WalletReserveError,
-} from '../wallet/wallet.port';
+import { WALLET_PORT, WalletReserveError } from '../wallet/wallet.port';
 import type { WalletPort } from '../wallet/wallet.port';
 import { legSnapshotCreateData } from './bet-leg-snapshot';
 import { BetValidationService } from './bet-validation.service';
@@ -244,21 +241,25 @@ export class BetsService {
         if (error.code === 'INSUFFICIENT_FUNDS') {
           return this.rejectBet(betId, error.message, outbox.id);
         }
-        await this.scheduleOutboxRetry(outbox.id, outbox.attempts, error.message);
+        await this.scheduleOutboxRetry(
+          outbox.id,
+          outbox.attempts,
+          error.message,
+        );
         throw new ServiceUnavailableException(
           'Bet accepted locally; wallet debit pending — retry with the same Idempotency-Key',
         );
       }
-      await this.scheduleOutboxRetry(outbox.id, outbox.attempts, (error as Error).message);
+      await this.scheduleOutboxRetry(
+        outbox.id,
+        outbox.attempts,
+        (error as Error).message,
+      );
       throw error;
     }
   }
 
-  private async rejectBet(
-    betId: string,
-    reason: string,
-    outboxId: string,
-  ) {
+  private async rejectBet(betId: string, reason: string, outboxId: string) {
     return this.prisma.$transaction(async (tx) => {
       const updated = await tx.bet.update({
         where: { id: betId },

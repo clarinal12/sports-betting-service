@@ -135,6 +135,18 @@ describe('Bets (e2e)', () => {
       .expect(401);
   });
 
+  it('returns wallet balance for the authenticated player', async () => {
+    const balanceRes = await request(app.getHttpServer())
+      .get('/api/v1/wallet/balance')
+      .set('Authorization', `Bearer ${sessionToken}`)
+      .expect(200);
+
+    expect(balanceRes.body).toMatchObject({
+      balance: expect.any(String),
+      currency: 'USD',
+    });
+  });
+
   it('places a bet and returns the same result for idempotent retry', async () => {
     const key = `e2e-bet-${Date.now()}`;
 
