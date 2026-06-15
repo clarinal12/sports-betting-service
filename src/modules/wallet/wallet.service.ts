@@ -14,7 +14,7 @@ export class WalletService {
 
   async getBalance(user: UserContext): Promise<WalletBalanceResponseDto> {
     try {
-      return await this.wallet.getBalance(user.userId, user.casinoGroupId);
+      return await this.wallet.getBalance(user.username, user.casinoGroupId);
     } catch (error) {
       if (error instanceof WalletReserveError) {
         throw new ServiceUnavailableException(error.message);

@@ -27,10 +27,10 @@ export class WalletStubClient implements WalletPort {
   constructor(private readonly config: ConfigService<EnvConfig, true>) {}
 
   async getBalance(
-    userId: string,
+    userCode: string,
     _casinoGroupId: string,
   ): Promise<WalletBalance> {
-    const balance = this.balanceFor(userId);
+    const balance = this.balanceFor(userCode);
     return {
       balance: balance.toFixed(2),
       currency: 'USD',

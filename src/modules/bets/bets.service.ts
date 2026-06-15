@@ -65,7 +65,7 @@ export class BetsService {
     );
 
     const balance = await this.wallet.getBalance(
-      user.userId,
+      user.username,
       user.casinoGroupId,
     );
     if (balance.currency !== user.currency) {

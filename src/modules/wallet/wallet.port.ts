@@ -69,7 +69,8 @@ export class WalletReserveError extends Error {
  * Contract for the external user/wallet service.
  */
 export interface WalletPort {
-  getBalance(userId: string, casinoGroupId: string): Promise<WalletBalance>;
+  /** @param userCode Operator username sent to the merchant wallet as `userCode`. */
+  getBalance(userCode: string, casinoGroupId: string): Promise<WalletBalance>;
   reserve(request: WalletReserveRequest): Promise<WalletReserveResult>;
   creditPayout(request: WalletCreditRequest): Promise<WalletCreditResult>;
   creditPayoutBatch(

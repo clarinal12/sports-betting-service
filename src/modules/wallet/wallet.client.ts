@@ -33,7 +33,7 @@ export class WalletHttpClient implements WalletPort {
   ) {}
 
   async getBalance(
-    userId: string,
+    userCode: string,
     casinoGroupId: string,
   ): Promise<WalletBalance> {
     const config = await this.requireWalletConfig(casinoGroupId);
@@ -46,7 +46,7 @@ export class WalletHttpClient implements WalletPort {
             errorCode: number;
           }>(
             `${config.apiUrl}/balance`,
-            { userCode: userId },
+            { userCode },
             {
               timeout: REQUEST_TIMEOUT_MS,
               headers: {
@@ -72,7 +72,7 @@ export class WalletHttpClient implements WalletPort {
         throw error;
       }
       this.logger.warn(
-        `Wallet balance lookup failed for user ${userId}: ${
+        `Wallet balance lookup failed for user ${userCode}: ${
           (error as Error).message
         }`,
       );
