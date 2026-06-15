@@ -11,6 +11,7 @@ RUN npm install --no-audit --no-fund \
   && ./node_modules/.bin/prisma generate --no-hints
 
 FROM base AS build
+ENV NODE_OPTIONS="--max-old-space-size=1024"
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN npm run build
