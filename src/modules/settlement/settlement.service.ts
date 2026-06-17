@@ -1,4 +1,3 @@
-import { randomUUID } from 'crypto';
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import {
   Bet,
@@ -19,6 +18,8 @@ import {
 } from '../bets/bet-leg-snapshot';
 import { WALLET_PORT } from '../wallet/wallet.port';
 import type { WalletPort } from '../wallet/wallet.port';
+import { buildSettlementTransaction } from '../wallet/wallet-transaction.builder';
+import { settlementTransactionCode } from '../wallet/wallet-transaction-code';
 import { LegOutcomeService, LegResult } from './leg-outcome.service';
 
 const BATCH_SIZE = 50;
@@ -203,30 +204,28 @@ export class SettlementService {
   }
 
   private async applySettlements(graded: GradedBet[]): Promise<void> {
-    const withPayout = graded.filter((entry) => entry.payoutAmount.gt(0));
-    const byGroup = new Map<string, GradedBet[]>();
-    for (const entry of withPayout) {
-      const list = byGroup.get(entry.bet.casinoGroupId) ?? [];
-      list.push(entry);
-      byGroup.set(entry.bet.casinoGroupId, list);
-    }
-
-    for (const [casinoGroupId, entries] of byGroup) {
-      await this.wallet.creditPayoutBatch({
-        casinoGroupId,
-        batchId: randomUUID(),
-        items: entries.map((entry) => ({
-          userId: entry.bet.userId,
-          amount: decimalToString(entry.payoutAmount),
-          currency: entry.bet.currency,
-          reference: entry.bet.id,
-          idempotencyKey: `settle-${entry.bet.id}`,
-          type: entry.betResult === BetStatus.WON ? 'WIN' : 'REFUND',
-        })),
-      });
-    }
-
     for (const entry of graded) {
+      const outcome = entry.betResult;
+      if (
+        outcome !== BetStatus.WON &&
+        outcome !== BetStatus.LOST &&
+        outcome !== BetStatus.VOID
+      ) {
+        continue;
+      }
+
+      const transaction = buildSettlementTransaction({
+        bet: entry.bet,
+        legs: entry.bet.legs,
+        outcome: entry.betResult as 'WON' | 'LOST' | 'VOID',
+        payoutAmount: entry.payoutAmount,
+        transactionCode: settlementTransactionCode(
+          entry.bet.id,
+          entry.betResult as 'WON' | 'LOST' | 'VOID',
+        ),
+      });
+      await this.wallet.postTransaction(transaction);
+
       await this.persistGradedBet(entry);
       this.metrics.recordBetSettled(entry.betResult);
       this.logger.log(
@@ -296,6 +295,13 @@ export class SettlementService {
             select: {
               homeTeam: { select: { name: true } },
               awayTeam: { select: { name: true } },
+              league: {
+                select: {
+                  key: true,
+                  name: true,
+                  sport: { select: { key: true, name: true } },
+                },
+              },
             },
           },
         },
@@ -316,6 +322,10 @@ export class SettlementService {
         homeTeamName: leg.homeTeamName!,
         awayTeamName: leg.awayTeamName!,
         eventProviderRef: leg.eventProviderRef ?? event.providerRef,
+        sportKey: leg.sportKey ?? event.fixture.league.sport.key,
+        sportName: leg.sportName ?? event.fixture.league.sport.name,
+        leagueKey: leg.leagueKey ?? event.fixture.league.key,
+        leagueName: leg.leagueName ?? event.fixture.league.name,
       };
       const grade = buildLegSettlementInput(leg, snapshot, {
         marketStatus: market.status,

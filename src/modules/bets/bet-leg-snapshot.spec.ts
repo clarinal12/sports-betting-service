@@ -12,6 +12,10 @@ describe('bet-leg-snapshot', () => {
     homeTeamName: 'Home FC',
     awayTeamName: 'Away FC',
     eventProviderRef: 'evt_123',
+    sportKey: 'basketball',
+    sportName: 'Basketball',
+    leagueKey: 'basketball_nba',
+    leagueName: 'NBA',
   };
 
   it('hasLegSnapshot is false when snapshot columns are null', () => {

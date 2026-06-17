@@ -7,6 +7,10 @@ export interface LegPlacementSnapshot {
   homeTeamName: string;
   awayTeamName: string;
   eventProviderRef: string;
+  sportKey: string;
+  sportName: string;
+  leagueKey: string;
+  leagueName: string;
 }
 
 export function hasLegSnapshot(
@@ -29,6 +33,10 @@ export function legSnapshotCreateData(
   | 'homeTeamName'
   | 'awayTeamName'
   | 'eventProviderRef'
+  | 'sportKey'
+  | 'sportName'
+  | 'leagueKey'
+  | 'leagueName'
 > {
   return {
     marketType: snapshot.marketType,
@@ -38,6 +46,10 @@ export function legSnapshotCreateData(
     homeTeamName: snapshot.homeTeamName,
     awayTeamName: snapshot.awayTeamName,
     eventProviderRef: snapshot.eventProviderRef,
+    sportKey: snapshot.sportKey,
+    sportName: snapshot.sportName,
+    leagueKey: snapshot.leagueKey,
+    leagueName: snapshot.leagueName,
   };
 }
 

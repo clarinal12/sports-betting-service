@@ -11,6 +11,8 @@ import { AuditService } from '../../../shared/audit/audit.service';
 import { toBetDto } from '../../bets/bet.mapper';
 import { WALLET_PORT } from '../../wallet/wallet.port';
 import type { WalletPort } from '../../wallet/wallet.port';
+import { buildSettlementTransaction } from '../../wallet/wallet-transaction.builder';
+import { staffVoidTransactionCode } from '../../wallet/wallet-transaction-code';
 import { SearchBetsQueryDto } from './dto/search-bets.dto';
 
 @Injectable()
@@ -183,15 +185,15 @@ export class StaffBetsService {
       );
     }
 
-    await this.wallet.creditPayout({
-      userId: bet.userId,
-      casinoGroupId: bet.casinoGroupId,
-      amount: decimalToString(bet.stake),
-      currency: bet.currency,
-      reference: bet.id,
-      idempotencyKey: `void-${bet.id}`,
-      type: 'REFUND',
-    });
+    await this.wallet.postTransaction(
+      buildSettlementTransaction({
+        bet,
+        legs: bet.legs,
+        outcome: 'VOID',
+        payoutAmount: bet.stake,
+        transactionCode: staffVoidTransactionCode(bet.id),
+      }),
+    );
 
     const updated = await this.prisma.$transaction(async (tx) => {
       for (const leg of bet.legs) {

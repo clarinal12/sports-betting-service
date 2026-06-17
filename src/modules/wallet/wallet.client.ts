@@ -5,19 +5,22 @@ import { firstValueFrom } from 'rxjs';
 import { CasinoGroupsService } from '../casino-groups/casino-groups.service';
 import { CircuitBreaker } from '../../shared/resilience/circuit-breaker';
 import { merchantBasicAuthHeader } from './wallet-auth.util';
+import { toMerchantTransactionBody } from './wallet-transaction.builder';
 import {
   WalletBalance,
-  WalletBatchCreditRequest,
-  WalletBatchCreditResult,
-  WalletCreditRequest,
-  WalletCreditResult,
   WalletPort,
   WalletReserveError,
-  WalletReserveRequest,
-  WalletReserveResult,
+  WalletTransactionRequest,
+  WalletTransactionResult,
 } from './wallet.port';
 
 const REQUEST_TIMEOUT_MS = 5000;
+
+interface MerchantWalletResponse {
+  success: boolean;
+  message?: string | number;
+  errorCode: number;
+}
 
 @Injectable()
 export class WalletHttpClient implements WalletPort {
@@ -40,11 +43,7 @@ export class WalletHttpClient implements WalletPort {
     try {
       return await this.breaker.execute(async () => {
         const response = await firstValueFrom(
-          this.http.post<{
-            success: boolean;
-            message: string | number;
-            errorCode: number;
-          }>(
+          this.http.post<MerchantWalletResponse>(
             `${config.apiUrl}/balance`,
             { userCode },
             {
@@ -80,34 +79,50 @@ export class WalletHttpClient implements WalletPort {
     }
   }
 
-  async reserve(request: WalletReserveRequest): Promise<WalletReserveResult> {
+  async postTransaction(
+    request: WalletTransactionRequest,
+  ): Promise<WalletTransactionResult> {
     const config = await this.requireWalletConfig(request.casinoGroupId);
+    const body = toMerchantTransactionBody(request);
+
     try {
       return await this.breaker.execute(async () => {
         const response = await firstValueFrom(
-          this.http.post<{ transactionId: string }>(
+          this.http.post<MerchantWalletResponse>(
             `${config.apiUrl}/transaction`,
-            {
-              userId: request.userId,
-              amount: request.amount,
-              currency: request.currency,
-              reference: request.reference,
-              idempotencyKey: request.idempotencyKey,
-              action: 'DEBIT',
-              type: 'BET',
-            },
+            body,
             {
               timeout: REQUEST_TIMEOUT_MS,
-              headers: this.authHeaders(config),
+              headers: {
+                ...this.authHeaders(config),
+                'Content-Type': 'application/json',
+              },
             },
           ),
         );
-        return { reservationId: response.data.transactionId };
+        return this.parseTransactionResponse(response.data, request);
       });
     } catch (error) {
+      if (error instanceof WalletReserveError) {
+        throw error;
+      }
       if (isAxiosError(error)) {
         const status = error.response?.status;
-        if (status === 402 || status === 409 || status === 400) {
+        const data = error.response?.data as MerchantWalletResponse | undefined;
+        if (data) {
+          try {
+            return this.parseTransactionResponse(data, request);
+          } catch (parsed) {
+            if (parsed instanceof WalletReserveError) {
+              throw parsed;
+            }
+          }
+        }
+        if (
+          status === 402 ||
+          status === 409 ||
+          status === 400
+        ) {
           throw new WalletReserveError(
             'Insufficient balance',
             'INSUFFICIENT_FUNDS',
@@ -115,7 +130,7 @@ export class WalletHttpClient implements WalletPort {
         }
       }
       this.logger.warn(
-        `Wallet bet debit failed for bet ${request.reference}: ${
+        `Wallet transaction failed (${request.transactionCode}): ${
           (error as Error).message
         }`,
       );
@@ -123,82 +138,36 @@ export class WalletHttpClient implements WalletPort {
     }
   }
 
-  async creditPayout(request: WalletCreditRequest): Promise<WalletCreditResult> {
-    const config = await this.requireWalletConfig(request.casinoGroupId);
-    try {
-      return await this.breaker.execute(async () => {
-        const response = await firstValueFrom(
-          this.http.post<{ transactionId: string }>(
-            `${config.apiUrl}/transaction`,
-            {
-              userId: request.userId,
-              amount: request.amount,
-              currency: request.currency,
-              reference: request.reference,
-              idempotencyKey: request.idempotencyKey,
-              action: 'CREDIT',
-              type: request.type === 'WIN' ? 'WIN' : 'VOID',
-            },
-            {
-              timeout: REQUEST_TIMEOUT_MS,
-              headers: this.authHeaders(config),
-            },
-          ),
-        );
-        return { transactionId: response.data.transactionId };
-      });
-    } catch (error) {
-      this.logger.warn(
-        `Wallet void credit failed for bet ${request.reference}: ${
-          (error as Error).message
-        }`,
-      );
-      throw new WalletReserveError('Wallet service unavailable', 'UNAVAILABLE');
+  private parseTransactionResponse(
+    data: MerchantWalletResponse,
+    request: WalletTransactionRequest,
+  ): WalletTransactionResult {
+    if (data.success && data.errorCode === 0) {
+      const id =
+        typeof data.message === 'string' && data.message.length > 0
+          ? data.message
+          : request.transactionCode;
+      return { transactionId: id };
     }
+
+    if (this.isDuplicateTransaction(data)) {
+      return { transactionId: request.transactionCode };
+    }
+
+    const amount = Number.parseFloat(request.amount);
+    if (amount < 0) {
+      throw new WalletReserveError('Insufficient balance', 'INSUFFICIENT_FUNDS');
+    }
+
+    throw new WalletReserveError('Wallet transaction rejected', 'UNAVAILABLE');
   }
 
-  async creditPayoutBatch(
-    request: WalletBatchCreditRequest,
-  ): Promise<WalletBatchCreditResult> {
-    if (request.items.length === 0) {
-      return { transactionIds: [] };
+  private isDuplicateTransaction(data: MerchantWalletResponse): boolean {
+    if (data.errorCode === 0) {
+      return false;
     }
-
-    const config = await this.requireWalletConfig(request.casinoGroupId);
-    try {
-      return await this.breaker.execute(async () => {
-        const response = await firstValueFrom(
-          this.http.post<{ transactionIds: string[] }>(
-            `${config.apiUrl}/batch-transactions`,
-            {
-              batchId: request.batchId,
-              transactions: request.items.map((item) => ({
-                userId: item.userId,
-                amount: item.amount,
-                currency: item.currency,
-                reference: item.reference,
-                idempotencyKey: item.idempotencyKey,
-                type: item.type,
-              })),
-            },
-            {
-              timeout: REQUEST_TIMEOUT_MS,
-              headers: this.authHeaders(config),
-            },
-          ),
-        );
-        return {
-          transactionIds: response.data.transactionIds ?? [],
-        };
-      });
-    } catch (error) {
-      this.logger.warn(
-        `Wallet batch settlement failed (${request.items.length} items): ${
-          (error as Error).message
-        }`,
-      );
-      throw new WalletReserveError('Wallet service unavailable', 'UNAVAILABLE');
-    }
+    const hint = String(data.message ?? '').toUpperCase();
+    return hint.includes('DUPLICATE');
   }
 
   private authHeaders(config: {

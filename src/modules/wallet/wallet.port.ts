@@ -6,59 +6,29 @@ export interface WalletBalance {
   currency: string;
 }
 
-export interface WalletReserveRequest {
-  userId: string;
+export interface WalletTransactionRequest {
+  userCode: string;
   casinoGroupId: string;
+  roundId: string;
+  transactionCode: string;
+  historyId: number;
+  gameCode: string;
+  gameType: number;
+  isFinished: boolean;
+  isCanceled: boolean;
   amount: string;
-  currency: string;
-  /** Bet id used as wallet reference. */
-  reference: string;
-  idempotencyKey: string;
+  detail: string;
+  createdAt: Date;
 }
 
-export interface WalletReserveResult {
-  reservationId: string;
-}
-
-export type WalletCreditType = 'WIN' | 'REFUND';
-
-export interface WalletCreditRequest {
-  userId: string;
-  casinoGroupId: string;
-  amount: string;
-  currency: string;
-  reference: string;
-  idempotencyKey: string;
-  type: WalletCreditType;
-}
-
-export interface WalletCreditResult {
+export interface WalletTransactionResult {
   transactionId: string;
-}
-
-export interface WalletBatchCreditItem {
-  userId: string;
-  amount: string;
-  currency: string;
-  reference: string;
-  idempotencyKey: string;
-  type: WalletCreditType;
-}
-
-export interface WalletBatchCreditRequest {
-  casinoGroupId: string;
-  batchId: string;
-  items: WalletBatchCreditItem[];
-}
-
-export interface WalletBatchCreditResult {
-  transactionIds: string[];
 }
 
 export class WalletReserveError extends Error {
   constructor(
     message: string,
-    readonly code: 'INSUFFICIENT_FUNDS' | 'UNAVAILABLE',
+    readonly code: 'INSUFFICIENT_FUNDS' | 'UNAVAILABLE' | 'DUPLICATE',
   ) {
     super(message);
     this.name = 'WalletReserveError';
@@ -71,11 +41,9 @@ export class WalletReserveError extends Error {
 export interface WalletPort {
   /** @param userCode Operator username sent to the merchant wallet as `userCode`. */
   getBalance(userCode: string, casinoGroupId: string): Promise<WalletBalance>;
-  reserve(request: WalletReserveRequest): Promise<WalletReserveResult>;
-  creditPayout(request: WalletCreditRequest): Promise<WalletCreditResult>;
-  creditPayoutBatch(
-    request: WalletBatchCreditRequest,
-  ): Promise<WalletBatchCreditResult>;
+  postTransaction(
+    request: WalletTransactionRequest,
+  ): Promise<WalletTransactionResult>;
 }
 
 export const WALLET_PORT = Symbol('WALLET_PORT');

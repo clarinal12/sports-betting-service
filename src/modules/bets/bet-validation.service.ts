@@ -89,6 +89,11 @@ export class BetValidationService {
                     awayTeam: { select: { name: true } },
                     league: {
                       select: {
+                        key: true,
+                        name: true,
+                        sport: {
+                          select: { key: true, name: true },
+                        },
                         groups: {
                           where: { casinoGroupId, enabled: true },
                           select: { casinoGroupId: true },
@@ -148,6 +153,10 @@ export class BetValidationService {
           homeTeamName: market.event.fixture.homeTeam.name,
           awayTeamName: market.event.fixture.awayTeam.name,
           eventProviderRef: market.event.providerRef,
+          sportKey: market.event.fixture.league.sport.key,
+          sportName: market.event.fixture.league.sport.name,
+          leagueKey: market.event.fixture.league.key,
+          leagueName: market.event.fixture.league.name,
         },
       });
     }

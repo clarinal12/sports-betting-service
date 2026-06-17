@@ -17,8 +17,14 @@ import { legSnapshotCreateData } from './bet-leg-snapshot';
 import { BetValidationService } from './bet-validation.service';
 import { toBetDto } from './bet.mapper';
 import { BetResponseDto } from './dto/bet-response.dto';
+import { buildBetDebitTransaction } from '../wallet/wallet-transaction.builder';
+import { newWalletTransactionCode } from '../wallet/wallet-transaction-code';
 
 const OUTBOX_TYPE_RESERVE = 'WALLET_RESERVE';
+
+interface WalletOutboxPayload {
+  transactionCode: string;
+}
 
 @Injectable()
 export class BetsService {
@@ -79,6 +85,7 @@ export class BetsService {
       data: {
         casinoGroupId: user.casinoGroupId,
         userId: user.userId,
+        username: user.username,
         idempotencyKey,
         stake: quote.stake,
         currency: user.currency,
@@ -100,19 +107,13 @@ export class BetsService {
       include: { legs: true },
     });
 
+    const transactionCode = newWalletTransactionCode();
     await this.prisma.walletOutbox.create({
       data: {
         betId: bet.id,
         type: OUTBOX_TYPE_RESERVE,
         status: WalletOutboxStatus.PENDING,
-        payload: {
-          userId: user.userId,
-          casinoGroupId: user.casinoGroupId,
-          amount: stake,
-          currency: user.currency,
-          reference: bet.id,
-          idempotencyKey,
-        },
+        payload: { transactionCode } satisfies WalletOutboxPayload,
       },
     });
 
@@ -201,31 +202,30 @@ export class BetsService {
       return bet;
     }
 
-    const payload = outbox.payload as {
-      userId: string;
-      casinoGroupId: string;
-      amount: string;
-      currency: string;
-      reference: string;
-      idempotencyKey: string;
-    };
+    const payload = outbox.payload as unknown as Partial<WalletOutboxPayload>;
+    let transactionCode = payload.transactionCode;
+    if (!transactionCode) {
+      transactionCode = newWalletTransactionCode();
+      await this.prisma.walletOutbox.update({
+        where: { id: outbox.id },
+        data: { payload: { transactionCode } satisfies WalletOutboxPayload },
+      });
+    }
+    const transaction = buildBetDebitTransaction({
+      bet,
+      legs: bet.legs,
+      transactionCode,
+    });
 
     try {
-      const result = await this.wallet.reserve({
-        userId: payload.userId,
-        casinoGroupId: payload.casinoGroupId,
-        amount: payload.amount,
-        currency: payload.currency,
-        reference: payload.reference,
-        idempotencyKey: payload.idempotencyKey,
-      });
+      const result = await this.wallet.postTransaction(transaction);
 
       return await this.prisma.$transaction(async (tx) => {
         const updated = await tx.bet.update({
           where: { id: betId },
           data: {
             status: BetStatus.ACCEPTED,
-            walletReservationId: result.reservationId,
+            walletReservationId: result.transactionId,
             rejectionReason: null,
           },
           include: { legs: true },

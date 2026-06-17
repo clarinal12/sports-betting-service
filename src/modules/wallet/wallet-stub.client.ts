@@ -5,14 +5,10 @@ import { EnvConfig } from '../../shared/config/env.validation';
 import { stakeLessOrEqualBalance } from '../../shared/decimal/bet-math';
 import {
   WalletBalance,
-  WalletBatchCreditRequest,
-  WalletBatchCreditResult,
-  WalletCreditRequest,
-  WalletCreditResult,
   WalletPort,
   WalletReserveError,
-  WalletReserveRequest,
-  WalletReserveResult,
+  WalletTransactionRequest,
+  WalletTransactionResult,
 } from './wallet.port';
 
 /**
@@ -22,7 +18,7 @@ import {
 export class WalletStubClient implements WalletPort {
   private readonly logger = new Logger(WalletStubClient.name);
   private readonly balances = new Map<string, Prisma.Decimal>();
-  private readonly creditIds = new Map<string, string>();
+  private readonly postedCodes = new Set<string>();
 
   constructor(private readonly config: ConfigService<EnvConfig, true>) {}
 
@@ -37,63 +33,35 @@ export class WalletStubClient implements WalletPort {
     };
   }
 
-  async reserve(request: WalletReserveRequest): Promise<WalletReserveResult> {
-    const stake = new Prisma.Decimal(request.amount);
-    const balance = this.balanceFor(request.userId);
-
-    if (!stakeLessOrEqualBalance(stake, balance.toFixed(2))) {
-      throw new WalletReserveError('Insufficient balance', 'INSUFFICIENT_FUNDS');
-    }
-
-    this.balances.set(
-      request.userId,
-      balance.minus(stake),
-    );
-    this.logger.debug(
-      `Stub reserve ${request.amount} for user ${request.userId} (ref ${request.reference})`,
-    );
-
-    return { reservationId: `stub-${request.reference}` };
-  }
-
-  async creditPayout(request: WalletCreditRequest): Promise<WalletCreditResult> {
-    const existing = this.creditIds.get(request.idempotencyKey);
-    if (existing) {
-      return { transactionId: existing };
+  async postTransaction(
+    request: WalletTransactionRequest,
+  ): Promise<WalletTransactionResult> {
+    if (this.postedCodes.has(request.transactionCode)) {
+      return { transactionId: request.transactionCode };
     }
 
     const amount = new Prisma.Decimal(request.amount);
-    const balance = this.balanceFor(request.userId);
-    this.balances.set(request.userId, balance.plus(amount));
-    const transactionId = `stub-credit-${request.reference}`;
-    this.creditIds.set(request.idempotencyKey, transactionId);
-    this.logger.debug(
-      `Stub ${request.type} ${request.amount} for user ${request.userId} (ref ${request.reference})`,
-    );
-    return { transactionId };
-  }
+    const balance = this.balanceFor(request.userCode);
 
-  async creditPayoutBatch(
-    request: WalletBatchCreditRequest,
-  ): Promise<WalletBatchCreditResult> {
-    const transactionIds: string[] = [];
-    for (const item of request.items) {
-      const result = await this.creditPayout({
-        userId: item.userId,
-        casinoGroupId: request.casinoGroupId,
-        amount: item.amount,
-        currency: item.currency,
-        reference: item.reference,
-        idempotencyKey: item.idempotencyKey,
-        type: item.type,
-      });
-      transactionIds.push(result.transactionId);
+    if (amount.lt(0)) {
+      const stake = amount.abs();
+      if (!stakeLessOrEqualBalance(stake, balance.toFixed(2))) {
+        throw new WalletReserveError('Insufficient balance', 'INSUFFICIENT_FUNDS');
+      }
+      this.balances.set(request.userCode, balance.minus(stake));
+    } else if (amount.gt(0)) {
+      this.balances.set(request.userCode, balance.plus(amount));
     }
-    return { transactionIds };
+
+    this.postedCodes.add(request.transactionCode);
+    this.logger.debug(
+      `Stub wallet tx ${request.transactionCode} ${request.amount} for ${request.userCode} (${request.detail})`,
+    );
+    return { transactionId: request.transactionCode };
   }
 
-  private balanceFor(userId: string): Prisma.Decimal {
-    const existing = this.balances.get(userId);
+  private balanceFor(userCode: string): Prisma.Decimal {
+    const existing = this.balances.get(userCode);
     if (existing) {
       return existing;
     }

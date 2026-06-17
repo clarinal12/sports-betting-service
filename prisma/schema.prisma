@@ -266,6 +266,8 @@ model Bet {
   id                  String    @id @default(cuid())
   casinoGroupId       String
   userId              String
+  /// Operator username — sent to merchant wallet as `userCode`.
+  username            String    @default("")
   idempotencyKey      String
   stake               Decimal   @db.Decimal(12, 2)
   currency            String
@@ -307,6 +309,10 @@ model BetLeg {
   homeTeamName       String?
   awayTeamName       String?
   eventProviderRef   String?
+  sportKey           String?
+  sportName          String?
+  leagueKey          String?
+  leagueName         String?
 
   bet       Bet       @relation(fields: [betId], references: [id], onDelete: Cascade)
   selection Selection @relation(fields: [selectionId], references: [id])
