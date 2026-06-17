@@ -7,7 +7,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { SchedulerRegistry } from '@nestjs/schedule';
 import { EnvConfig } from '../../shared/config/env.validation';
-import { BetsService } from './bets.service';
+import { WalletOutboxService } from '../wallet/wallet-outbox.service';
 
 const WALLET_OUTBOX_INTERVAL = 'wallet-outbox-poll';
 
@@ -18,7 +18,7 @@ export class BetsOutboxWorker implements OnModuleInit, OnModuleDestroy {
   constructor(
     private readonly config: ConfigService<EnvConfig, true>,
     private readonly schedulerRegistry: SchedulerRegistry,
-    private readonly bets: BetsService,
+    private readonly walletOutbox: WalletOutboxService,
   ) {}
 
   onModuleInit(): void {
@@ -45,9 +45,9 @@ export class BetsOutboxWorker implements OnModuleInit, OnModuleDestroy {
 
   private async poll(): Promise<void> {
     try {
-      const count = await this.bets.processOutboxBatch();
+      const count = await this.walletOutbox.processPending();
       if (count > 0) {
-        this.logger.log(`Wallet outbox processed ${count} bet(s)`);
+        this.logger.log(`Wallet outbox processed ${count} item(s)`);
       }
     } catch (error) {
       this.logger.error(

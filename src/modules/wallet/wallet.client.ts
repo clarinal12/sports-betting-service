@@ -10,6 +10,8 @@ import {
   WalletBalance,
   WalletPort,
   WalletReserveError,
+  WalletBatchTransactionRequest,
+  WalletBatchTransactionResult,
   WalletTransactionRequest,
   WalletTransactionResult,
 } from './wallet.port';
@@ -131,6 +133,67 @@ export class WalletHttpClient implements WalletPort {
       }
       this.logger.warn(
         `Wallet transaction failed (${request.transactionCode}): ${
+          (error as Error).message
+        }`,
+      );
+      throw new WalletReserveError('Wallet service unavailable', 'UNAVAILABLE');
+    }
+  }
+
+  async postTransactionBatch(
+    request: WalletBatchTransactionRequest,
+  ): Promise<WalletBatchTransactionResult> {
+    if (request.transactions.length === 0) {
+      return { batchId: request.batchId };
+    }
+
+    const config = await this.requireWalletConfig(request.casinoGroupId);
+    const body = {
+      batchId: request.batchId,
+      transactions: request.transactions.map(toMerchantTransactionBody),
+    };
+
+    try {
+      return await this.breaker.execute(async () => {
+        const response = await firstValueFrom(
+          this.http.post<MerchantWalletResponse>(
+            `${config.apiUrl}/batch-transactions`,
+            body,
+            {
+              timeout: REQUEST_TIMEOUT_MS,
+              headers: {
+                ...this.authHeaders(config),
+                'Content-Type': 'application/json',
+              },
+            },
+          ),
+        );
+        if (response.data.success && response.data.errorCode === 0) {
+          return { batchId: request.batchId };
+        }
+        if (this.isDuplicateTransaction(response.data)) {
+          return { batchId: request.batchId };
+        }
+        throw new WalletReserveError(
+          'Wallet batch settlement rejected',
+          'UNAVAILABLE',
+        );
+      });
+    } catch (error) {
+      if (error instanceof WalletReserveError) {
+        throw error;
+      }
+      if (isAxiosError(error)) {
+        const data = error.response?.data as MerchantWalletResponse | undefined;
+        if (data?.success && data.errorCode === 0) {
+          return { batchId: request.batchId };
+        }
+        if (data && this.isDuplicateTransaction(data)) {
+          return { batchId: request.batchId };
+        }
+      }
+      this.logger.warn(
+        `Wallet batch failed (${request.batchId}, ${request.transactions.length} txs): ${
           (error as Error).message
         }`,
       );

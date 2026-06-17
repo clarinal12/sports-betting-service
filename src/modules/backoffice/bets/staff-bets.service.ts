@@ -1,6 +1,5 @@
 import {
   BadRequestException,
-  Inject,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -9,10 +8,12 @@ import { PrismaService } from '../../../shared/database/prisma.service';
 import { decimalToString } from '../../../shared/decimal/decimal.util';
 import { AuditService } from '../../../shared/audit/audit.service';
 import { toBetDto } from '../../bets/bet.mapper';
-import { WALLET_PORT } from '../../wallet/wallet.port';
-import type { WalletPort } from '../../wallet/wallet.port';
 import { buildSettlementTransaction } from '../../wallet/wallet-transaction.builder';
 import { staffVoidTransactionCode } from '../../wallet/wallet-transaction-code';
+import {
+  WALLET_OUTBOX_STAFF_VOID,
+  serializeWalletTransaction,
+} from '../../wallet/wallet-outbox.types';
 import { SearchBetsQueryDto } from './dto/search-bets.dto';
 
 @Injectable()
@@ -20,7 +21,6 @@ export class StaffBetsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
-    @Inject(WALLET_PORT) private readonly wallet: WalletPort,
   ) {}
 
   async search(casinoGroupId: string, query: SearchBetsQueryDto) {
@@ -98,6 +98,7 @@ export class StaffBetsService {
         }),
         this.prisma.walletOutbox.findMany({
           where: {
+            casinoGroupId,
             status: { in: [WalletOutboxStatus.FAILED, WalletOutboxStatus.PENDING] },
           },
           orderBy: { updatedAt: 'desc' },
@@ -105,6 +106,7 @@ export class StaffBetsService {
           select: {
             id: true,
             betId: true,
+            type: true,
             status: true,
             attempts: true,
             lastError: true,
@@ -135,6 +137,7 @@ export class StaffBetsService {
       .map((row) => ({
         outboxId: row.id,
         betId: row.betId,
+        outboxType: row.type,
         outboxStatus: row.status,
         attempts: row.attempts,
         lastError: row.lastError,
@@ -185,15 +188,14 @@ export class StaffBetsService {
       );
     }
 
-    await this.wallet.postTransaction(
-      buildSettlementTransaction({
-        bet,
-        legs: bet.legs,
-        outcome: 'VOID',
-        payoutAmount: bet.stake,
-        transactionCode: staffVoidTransactionCode(bet.id),
-      }),
-    );
+    const transactionCode = staffVoidTransactionCode(bet.id);
+    const transaction = buildSettlementTransaction({
+      bet,
+      legs: bet.legs,
+      outcome: 'VOID',
+      payoutAmount: bet.stake,
+      transactionCode,
+    });
 
     const updated = await this.prisma.$transaction(async (tx) => {
       for (const leg of bet.legs) {
@@ -202,7 +204,7 @@ export class StaffBetsService {
           data: { outcome: BetLegOutcome.VOID },
         });
       }
-      return tx.bet.update({
+      const voided = await tx.bet.update({
         where: { id: bet.id },
         data: {
           status: BetStatus.VOID,
@@ -212,6 +214,17 @@ export class StaffBetsService {
         },
         include: { legs: true },
       });
+      await tx.walletOutbox.create({
+        data: {
+          betId: bet.id,
+          casinoGroupId,
+          type: WALLET_OUTBOX_STAFF_VOID,
+          transactionCode,
+          payload: serializeWalletTransaction(transaction),
+          status: WalletOutboxStatus.PENDING,
+        },
+      });
+      return voided;
     });
 
     await this.audit.record({

@@ -25,6 +25,16 @@ export interface WalletTransactionResult {
   transactionId: string;
 }
 
+export interface WalletBatchTransactionRequest {
+  casinoGroupId: string;
+  batchId: string;
+  transactions: WalletTransactionRequest[];
+}
+
+export interface WalletBatchTransactionResult {
+  batchId: string;
+}
+
 export class WalletReserveError extends Error {
   constructor(
     message: string,
@@ -44,6 +54,9 @@ export interface WalletPort {
   postTransaction(
     request: WalletTransactionRequest,
   ): Promise<WalletTransactionResult>;
+  postTransactionBatch(
+    request: WalletBatchTransactionRequest,
+  ): Promise<WalletBatchTransactionResult>;
 }
 
 export const WALLET_PORT = Symbol('WALLET_PORT');

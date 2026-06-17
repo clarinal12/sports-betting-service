@@ -13,18 +13,13 @@ import { MetricsService } from '../../shared/metrics/metrics.service';
 import { stakeLessOrEqualBalance } from '../../shared/decimal/bet-math';
 import { WALLET_PORT, WalletReserveError } from '../wallet/wallet.port';
 import type { WalletPort } from '../wallet/wallet.port';
+import { WalletOutboxService } from '../wallet/wallet-outbox.service';
+import { WALLET_OUTBOX_DEBIT } from '../wallet/wallet-outbox.types';
+import { newWalletTransactionCode } from '../wallet/wallet-transaction-code';
 import { legSnapshotCreateData } from './bet-leg-snapshot';
 import { BetValidationService } from './bet-validation.service';
 import { toBetDto } from './bet.mapper';
 import { BetResponseDto } from './dto/bet-response.dto';
-import { buildBetDebitTransaction } from '../wallet/wallet-transaction.builder';
-import { newWalletTransactionCode } from '../wallet/wallet-transaction-code';
-
-const OUTBOX_TYPE_RESERVE = 'WALLET_RESERVE';
-
-interface WalletOutboxPayload {
-  transactionCode: string;
-}
 
 @Injectable()
 export class BetsService {
@@ -34,6 +29,7 @@ export class BetsService {
     private readonly prisma: PrismaService,
     private readonly validation: BetValidationService,
     @Inject(WALLET_PORT) private readonly wallet: WalletPort,
+    private readonly walletOutbox: WalletOutboxService,
     private readonly metrics: MetricsService,
   ) {}
 
@@ -81,6 +77,7 @@ export class BetsService {
       throw new BadRequestException('Insufficient balance');
     }
 
+    const transactionCode = newWalletTransactionCode();
     const bet = await this.prisma.bet.create({
       data: {
         casinoGroupId: user.casinoGroupId,
@@ -103,21 +100,20 @@ export class BetsService {
             ...legSnapshotCreateData(leg.snapshot),
           })),
         },
+        walletOutbox: {
+          create: {
+            casinoGroupId: user.casinoGroupId,
+            type: WALLET_OUTBOX_DEBIT,
+            transactionCode,
+            payload: {},
+            status: WalletOutboxStatus.PENDING,
+          },
+        },
       },
       include: { legs: true },
     });
 
-    const transactionCode = newWalletTransactionCode();
-    await this.prisma.walletOutbox.create({
-      data: {
-        betId: bet.id,
-        type: OUTBOX_TYPE_RESERVE,
-        status: WalletOutboxStatus.PENDING,
-        payload: { transactionCode } satisfies WalletOutboxPayload,
-      },
-    });
-
-    const placed = await this.attemptWalletReserve(bet.id);
+    const placed = await this.attemptWalletDebit(bet.id);
     this.metrics.recordBetPlaced(placed.status);
     return toBetDto(placed);
   }
@@ -151,149 +147,28 @@ export class BetsService {
     return toBetDto(bet);
   }
 
-  async processOutboxBatch(limit = 20): Promise<number> {
-    const now = new Date();
-    const entries = await this.prisma.walletOutbox.findMany({
-      where: {
-        status: WalletOutboxStatus.PENDING,
-        OR: [{ nextRetryAt: null }, { nextRetryAt: { lte: now } }],
-      },
-      orderBy: { createdAt: 'asc' },
-      take: limit,
-    });
-
-    let processed = 0;
-    for (const entry of entries) {
-      try {
-        await this.attemptWalletReserve(entry.betId);
-        processed += 1;
-      } catch (error) {
-        this.logger.warn(
-          `Outbox entry ${entry.id} still pending: ${(error as Error).message}`,
-        );
-      }
-    }
-    return processed;
-  }
-
   private async retryPendingBet(betId: string) {
-    return this.attemptWalletReserve(betId);
+    return this.attemptWalletDebit(betId);
   }
 
-  private async attemptWalletReserve(betId: string) {
-    const bet = await this.prisma.bet.findUnique({
-      where: { id: betId },
-      include: { legs: true },
-    });
-    if (!bet) {
-      throw new NotFoundException('Bet not found');
-    }
-    if (bet.status === BetStatus.ACCEPTED) {
-      return bet;
-    }
-    if (bet.status === BetStatus.REJECTED) {
-      return bet;
-    }
-
-    const outbox = await this.prisma.walletOutbox.findUnique({
-      where: { betId },
-    });
-    if (!outbox || outbox.status === WalletOutboxStatus.COMPLETED) {
-      return bet;
-    }
-
-    const payload = outbox.payload as unknown as Partial<WalletOutboxPayload>;
-    let transactionCode = payload.transactionCode;
-    if (!transactionCode) {
-      transactionCode = newWalletTransactionCode();
-      await this.prisma.walletOutbox.update({
-        where: { id: outbox.id },
-        data: { payload: { transactionCode } satisfies WalletOutboxPayload },
-      });
-    }
-    const transaction = buildBetDebitTransaction({
-      bet,
-      legs: bet.legs,
-      transactionCode,
-    });
-
+  private async attemptWalletDebit(betId: string) {
     try {
-      const result = await this.wallet.postTransaction(transaction);
-
-      return await this.prisma.$transaction(async (tx) => {
-        const updated = await tx.bet.update({
-          where: { id: betId },
-          data: {
-            status: BetStatus.ACCEPTED,
-            walletReservationId: result.transactionId,
-            rejectionReason: null,
-          },
-          include: { legs: true },
-        });
-        await tx.walletOutbox.update({
-          where: { betId },
-          data: { status: WalletOutboxStatus.COMPLETED, lastError: null },
-        });
-        return updated;
-      });
+      return await this.walletOutbox.processDebitForBet(betId);
     } catch (error) {
       if (error instanceof WalletReserveError) {
-        if (error.code === 'INSUFFICIENT_FUNDS') {
-          return this.rejectBet(betId, error.message, outbox.id);
-        }
-        await this.scheduleOutboxRetry(
-          outbox.id,
-          outbox.attempts,
-          error.message,
-        );
         throw new ServiceUnavailableException(
           'Bet accepted locally; wallet debit pending — retry with the same Idempotency-Key',
         );
       }
-      await this.scheduleOutboxRetry(
-        outbox.id,
-        outbox.attempts,
-        (error as Error).message,
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+      this.logger.warn(
+        `Wallet debit pending for bet ${betId}: ${(error as Error).message}`,
       );
-      throw error;
+      throw new ServiceUnavailableException(
+        'Bet accepted locally; wallet debit pending — retry with the same Idempotency-Key',
+      );
     }
-  }
-
-  private async rejectBet(betId: string, reason: string, outboxId: string) {
-    return this.prisma.$transaction(async (tx) => {
-      const updated = await tx.bet.update({
-        where: { id: betId },
-        data: {
-          status: BetStatus.REJECTED,
-          rejectionReason: reason,
-        },
-        include: { legs: true },
-      });
-      await tx.walletOutbox.update({
-        where: { id: outboxId },
-        data: {
-          status: WalletOutboxStatus.FAILED,
-          lastError: reason,
-        },
-      });
-      return updated;
-    });
-  }
-
-  private async scheduleOutboxRetry(
-    outboxId: string,
-    attempts: number,
-    message: string,
-  ): Promise<void> {
-    const nextAttempts = attempts + 1;
-    const delaySeconds = Math.min(60 * nextAttempts, 900);
-    await this.prisma.walletOutbox.update({
-      where: { id: outboxId },
-      data: {
-        attempts: nextAttempts,
-        lastError: message,
-        nextRetryAt: new Date(Date.now() + delaySeconds * 1000),
-      },
-    });
   }
 }

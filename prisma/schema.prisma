@@ -284,7 +284,8 @@ model Bet {
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt
 
-  legs BetLeg[]
+  legs         BetLeg[]
+  walletOutbox WalletOutbox[]
 
   @@unique([casinoGroupId, userId, idempotencyKey])
   @@index([casinoGroupId, userId, createdAt(sort: Desc)])
@@ -322,20 +323,27 @@ model BetLeg {
   @@map("bet_legs")
 }
 
-/// Retries wallet reserve for bets that could not debit synchronously (FR-B3).
+/// Async delivery of wallet API calls (debit, settlement batch, staff void).
 model WalletOutbox {
-  id          String             @id @default(cuid())
-  betId       String             @unique
-  type        String
-  payload     Json
-  status      WalletOutboxStatus @default(PENDING)
-  attempts    Int                @default(0)
-  lastError   String?
-  nextRetryAt DateTime?
-  createdAt   DateTime           @default(now())
-  updatedAt   DateTime           @updatedAt
+  id              String             @id @default(cuid())
+  betId           String
+  casinoGroupId   String
+  type            String
+  transactionCode String             @unique
+  /// Shared across settlement outbox rows retried in the same batch HTTP call.
+  batchId         String?
+  payload         Json
+  status          WalletOutboxStatus @default(PENDING)
+  attempts        Int                @default(0)
+  lastError       String?
+  nextRetryAt     DateTime?
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
 
-  @@index([status, nextRetryAt])
+  bet Bet @relation(fields: [betId], references: [id], onDelete: Cascade)
+
+  @@unique([betId, type])
+  @@index([status, type, casinoGroupId, nextRetryAt])
   @@map("wallet_outbox")
 }
 

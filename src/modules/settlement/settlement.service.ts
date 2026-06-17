@@ -1,4 +1,5 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { randomUUID } from 'crypto';
+import { Injectable, Logger } from '@nestjs/common';
 import {
   Bet,
   BetLeg,
@@ -7,6 +8,7 @@ import {
   EventStatus,
   MarketStatus,
   Prisma,
+  WalletOutboxStatus,
 } from '@prisma/client';
 import { PrismaService } from '../../shared/database/prisma.service';
 import { decimalToString } from '../../shared/decimal/decimal.util';
@@ -16,8 +18,11 @@ import {
   hasLegSnapshot,
   type LegPlacementSnapshot,
 } from '../bets/bet-leg-snapshot';
-import { WALLET_PORT } from '../wallet/wallet.port';
-import type { WalletPort } from '../wallet/wallet.port';
+import { WalletOutboxService } from '../wallet/wallet-outbox.service';
+import {
+  WALLET_OUTBOX_SETTLE,
+  serializeWalletTransaction,
+} from '../wallet/wallet-outbox.types';
 import { buildSettlementTransaction } from '../wallet/wallet-transaction.builder';
 import { settlementTransactionCode } from '../wallet/wallet-transaction-code';
 import { LegOutcomeService, LegResult } from './leg-outcome.service';
@@ -38,7 +43,7 @@ export class SettlementService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly legOutcome: LegOutcomeService,
-    @Inject(WALLET_PORT) private readonly wallet: WalletPort,
+    private readonly walletOutbox: WalletOutboxService,
     private readonly metrics: MetricsService,
   ) {}
 
@@ -203,7 +208,18 @@ export class SettlementService {
     return { bet, legResults, betResult, payoutAmount };
   }
 
+  /**
+   * Phase 1: persist graded outcomes + settlement outbox rows (DB only).
+   * Phase 2: POST /batch-transactions per tenant via wallet outbox.
+   */
   private async applySettlements(graded: GradedBet[]): Promise<void> {
+    await this.persistGradedSettlements(graded);
+    await this.walletOutbox.flushSettlementBatches();
+  }
+
+  private async persistGradedSettlements(graded: GradedBet[]): Promise<void> {
+    const batchIdByGroup = new Map<string, string>();
+
     for (const entry of graded) {
       const outcome = entry.betResult;
       if (
@@ -214,44 +230,59 @@ export class SettlementService {
         continue;
       }
 
+      let batchId = batchIdByGroup.get(entry.bet.casinoGroupId);
+      if (!batchId) {
+        batchId = randomUUID();
+        batchIdByGroup.set(entry.bet.casinoGroupId, batchId);
+      }
+
+      const settlementOutcome = entry.betResult as 'WON' | 'LOST' | 'VOID';
+      const transactionCode = settlementTransactionCode(
+        entry.bet.id,
+        settlementOutcome,
+      );
       const transaction = buildSettlementTransaction({
         bet: entry.bet,
         legs: entry.bet.legs,
-        outcome: entry.betResult as 'WON' | 'LOST' | 'VOID',
+        outcome: settlementOutcome,
         payoutAmount: entry.payoutAmount,
-        transactionCode: settlementTransactionCode(
-          entry.bet.id,
-          entry.betResult as 'WON' | 'LOST' | 'VOID',
-        ),
+        transactionCode,
       });
-      await this.wallet.postTransaction(transaction);
 
-      await this.persistGradedBet(entry);
+      await this.prisma.$transaction(async (tx) => {
+        for (let i = 0; i < entry.bet.legs.length; i++) {
+          await tx.betLeg.update({
+            where: { id: entry.bet.legs[i].id },
+            data: { outcome: this.toLegOutcome(entry.legResults[i]) },
+          });
+        }
+        await tx.bet.update({
+          where: { id: entry.bet.id },
+          data: {
+            status: entry.betResult,
+            payoutAmount: entry.payoutAmount,
+            settledAt: new Date(),
+            settlementNote: null,
+          },
+        });
+        await tx.walletOutbox.create({
+          data: {
+            betId: entry.bet.id,
+            casinoGroupId: entry.bet.casinoGroupId,
+            type: WALLET_OUTBOX_SETTLE,
+            transactionCode,
+            batchId,
+            payload: serializeWalletTransaction(transaction),
+            status: WalletOutboxStatus.PENDING,
+          },
+        });
+      });
+
       this.metrics.recordBetSettled(entry.betResult);
       this.logger.log(
         `Settled bet ${entry.bet.id} as ${entry.betResult} (payout ${decimalToString(entry.payoutAmount)})`,
       );
     }
-  }
-
-  private async persistGradedBet(entry: GradedBet): Promise<void> {
-    await this.prisma.$transaction(async (tx) => {
-      for (let i = 0; i < entry.bet.legs.length; i++) {
-        await tx.betLeg.update({
-          where: { id: entry.bet.legs[i].id },
-          data: { outcome: this.toLegOutcome(entry.legResults[i]) },
-        });
-      }
-      await tx.bet.update({
-        where: { id: entry.bet.id },
-        data: {
-          status: entry.betResult,
-          payoutAmount: entry.payoutAmount,
-          settledAt: new Date(),
-          settlementNote: null,
-        },
-      });
-    });
   }
 
   private aggregateBetResult(legResults: LegResult[]): BetStatus {
