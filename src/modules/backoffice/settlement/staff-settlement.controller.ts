@@ -39,6 +39,17 @@ export class StaffSettlementController {
     return this.settlement.listUnsettledEvents(groupId);
   }
 
+  @Get('wallet-queue')
+  @RequirePermission('settlement.read')
+  @ApiQuery({ name: 'casinoGroupId', required: false })
+  async walletQueue(
+    @CurrentStaff() staff: StaffContext,
+    @Query('casinoGroupId') casinoGroupId?: string,
+  ) {
+    const groupId = await this.scope.resolveCasinoGroupId(staff, casinoGroupId);
+    return this.settlement.listWalletSettlementQueue(groupId);
+  }
+
   @Post('events/:eventId/run')
   @RequirePermission('settlement.run')
   @ApiQuery({ name: 'casinoGroupId', required: false })

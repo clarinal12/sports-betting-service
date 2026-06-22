@@ -3,11 +3,21 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { BetStatus, EventStatus, MarketStatus } from '@prisma/client';
+import {
+  BetStatus,
+  EventStatus,
+  MarketStatus,
+  WalletOutboxStatus,
+} from '@prisma/client';
 import { PrismaService } from '../../../shared/database/prisma.service';
+import { decimalToString } from '../../../shared/decimal/decimal.util';
 import { AuditService } from '../../../shared/audit/audit.service';
 import { IngestionService } from '../../ingestion/ingestion.service';
 import { SettlementService } from '../../settlement/settlement.service';
+import {
+  WALLET_OUTBOX_SETTLE,
+  deserializeWalletTransaction,
+} from '../../wallet/wallet-outbox.types';
 
 @Injectable()
 export class StaffSettlementService {
@@ -17,6 +27,137 @@ export class StaffSettlementService {
     private readonly ingestion: IngestionService,
     private readonly audit: AuditService,
   ) {}
+
+  /**
+   * Bets graded in DB but wallet settlement batch not yet delivered
+   * (PENDING `WALLET_SETTLE` outbox rows).
+   */
+  async listWalletSettlementQueue(casinoGroupId: string) {
+    const now = new Date();
+    const rows = await this.prisma.walletOutbox.findMany({
+      where: {
+        casinoGroupId,
+        type: WALLET_OUTBOX_SETTLE,
+        status: WalletOutboxStatus.PENDING,
+      },
+      orderBy: [{ batchId: 'asc' }, { createdAt: 'asc' }],
+      take: 200,
+      select: {
+        id: true,
+        betId: true,
+        batchId: true,
+        transactionCode: true,
+        status: true,
+        attempts: true,
+        lastError: true,
+        nextRetryAt: true,
+        createdAt: true,
+        updatedAt: true,
+        payload: true,
+      },
+    });
+
+    const betIds = [...new Set(rows.map((row) => row.betId))];
+    const bets =
+      betIds.length > 0
+        ? await this.prisma.bet.findMany({
+            where: { id: { in: betIds }, casinoGroupId },
+            select: {
+              id: true,
+              userId: true,
+              username: true,
+              status: true,
+              stake: true,
+              payoutAmount: true,
+              currency: true,
+              settledAt: true,
+            },
+          })
+        : [];
+    const betById = new Map(bets.map((bet) => [bet.id, bet]));
+
+    const batchStats = new Map<
+      string,
+      { batchId: string; count: number; oldestCreatedAt: Date }
+    >();
+
+    const items = rows
+      .filter((row) => betById.has(row.betId))
+      .map((row) => {
+        const bet = betById.get(row.betId)!;
+        const batchKey = row.batchId ?? 'unassigned';
+        const existing = batchStats.get(batchKey);
+        if (!existing) {
+          batchStats.set(batchKey, {
+            batchId: batchKey,
+            count: 1,
+            oldestCreatedAt: row.createdAt,
+          });
+        } else {
+          existing.count += 1;
+          if (row.createdAt < existing.oldestCreatedAt) {
+            existing.oldestCreatedAt = row.createdAt;
+          }
+        }
+
+        let walletAmount: string | null = null;
+        try {
+          walletAmount = deserializeWalletTransaction(row.payload).amount;
+        } catch {
+          walletAmount = null;
+        }
+
+        const retryDue =
+          row.nextRetryAt === null || row.nextRetryAt.getTime() <= now.getTime();
+
+        return {
+          outboxId: row.id,
+          betId: row.betId,
+          batchId: row.batchId,
+          transactionCode: row.transactionCode,
+          outboxStatus: row.status,
+          attempts: row.attempts,
+          lastError: row.lastError,
+          nextRetryAt: row.nextRetryAt?.toISOString() ?? null,
+          retryDue,
+          createdAt: row.createdAt.toISOString(),
+          updatedAt: row.updatedAt.toISOString(),
+          walletAmount,
+          bet: {
+            id: bet.id,
+            userId: bet.userId,
+            username: bet.username,
+            status: bet.status,
+            stake: decimalToString(bet.stake),
+            payoutAmount: bet.payoutAmount
+              ? decimalToString(bet.payoutAmount)
+              : null,
+            currency: bet.currency,
+            settledAt: bet.settledAt?.toISOString() ?? null,
+          },
+        };
+      });
+
+    const batches = [...batchStats.values()]
+      .map((batch) => ({
+        batchId: batch.batchId === 'unassigned' ? null : batch.batchId,
+        count: batch.count,
+        oldestCreatedAt: batch.oldestCreatedAt.toISOString(),
+      }))
+      .sort((a, b) => a.oldestCreatedAt.localeCompare(b.oldestCreatedAt));
+
+    return {
+      casinoGroupId,
+      summary: {
+        pendingCount: items.length,
+        batchCount: batches.length,
+        retryingCount: items.filter((item) => item.attempts > 0).length,
+        dueNowCount: items.filter((item) => item.retryDue).length,
+      },
+      batches,
+      items,
+    };
+  }
 
   /** Events with open (ACCEPTED) bet exposure that are not fully settled. */
   async listUnsettledEvents(casinoGroupId: string) {
