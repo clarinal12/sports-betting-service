@@ -20,7 +20,23 @@ export function parseCorsOrigins(): string[] {
     .filter(Boolean);
 }
 
-/** HTTP CORS options for Nest `enableCors`. Disabled outside development. */
+/** True when browser CORS should be enabled (local dev or explicit HTTPS origins). */
+export function isCorsEnabled(): boolean {
+  return isDevelopmentEnv() || Boolean(process.env.CORS_ORIGINS?.trim());
+}
+
+const CORS_OPTIONS = {
+  credentials: true as const,
+  allowedHeaders: [
+    'Authorization',
+    'Content-Type',
+    'X-Casino-Group',
+    'Idempotency-Key',
+  ],
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+};
+
+/** HTTP CORS options for Nest `enableCors`. */
 export function httpCorsOptions():
   | {
       origin: string[];
@@ -29,27 +45,20 @@ export function httpCorsOptions():
       methods: string[];
     }
   | undefined {
-  if (!isDevelopmentEnv()) {
+  if (!isCorsEnabled()) {
     return undefined;
   }
   return {
     origin: parseCorsOrigins(),
-    credentials: true,
-    allowedHeaders: [
-      'Authorization',
-      'Content-Type',
-      'X-Casino-Group',
-      'Idempotency-Key',
-    ],
-    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    ...CORS_OPTIONS,
   };
 }
 
-/** Socket.IO CORS setting for the realtime gateway. Disabled outside development. */
+/** Socket.IO CORS setting for the realtime gateway. */
 export function socketIoCorsOptions():
   | { origin: string[]; credentials: true }
   | false {
-  if (!isDevelopmentEnv()) {
+  if (!isCorsEnabled()) {
     return false;
   }
   return {

@@ -93,8 +93,9 @@ export const envSchema = z.object({
     .max(1000)
     .default(60),
 
-  // --- HTTP CORS (development only — browser clients e.g. sportsbook-player-shell) ---
-  /// Comma-separated allowed origins when NODE_ENV=development.
+  // --- HTTP CORS (browser SPAs: player shell + back office) ---
+  /// Comma-separated allowed origins. Required for HTTPS deploy (e.g. backoffice + play subdomains).
+  /// Also used when NODE_ENV=development (defaults to localhost ports if unset).
   CORS_ORIGINS: z
     .string()
     .default('http://localhost:5001,http://127.0.0.1:5001,http://localhost:5002,http://127.0.0.1:5002')
