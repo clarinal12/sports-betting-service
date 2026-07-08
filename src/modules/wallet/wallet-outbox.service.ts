@@ -33,6 +33,23 @@ export class WalletOutboxService {
     return processed;
   }
 
+  /** Flush all due settlement batches for one tenant (e.g. staff manual retry). */
+  async flushSettlementBatchesForCasinoGroup(
+    casinoGroupId: string,
+  ): Promise<number> {
+    let batches = 0;
+    while (await this.flushSettlementBatchForGroup(casinoGroupId)) {
+      batches += 1;
+      if (batches >= 100) {
+        this.logger.warn(
+          `Stopped wallet settlement flush after 100 batches for ${casinoGroupId}`,
+        );
+        break;
+      }
+    }
+    return batches;
+  }
+
   /** Called at end of a settlement run after all bets are persisted. */
   async flushSettlementBatches(): Promise<number> {
     const now = new Date();

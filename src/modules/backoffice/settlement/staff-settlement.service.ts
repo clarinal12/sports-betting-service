@@ -14,6 +14,7 @@ import { decimalToString } from '../../../shared/decimal/decimal.util';
 import { AuditService } from '../../../shared/audit/audit.service';
 import { IngestionService } from '../../ingestion/ingestion.service';
 import { SettlementService } from '../../settlement/settlement.service';
+import { WalletOutboxService } from '../../wallet/wallet-outbox.service';
 import {
   WALLET_OUTBOX_SETTLE,
   deserializeWalletTransaction,
@@ -26,6 +27,7 @@ export class StaffSettlementService {
     private readonly settlement: SettlementService,
     private readonly ingestion: IngestionService,
     private readonly audit: AuditService,
+    private readonly walletOutbox: WalletOutboxService,
   ) {}
 
   /**
@@ -156,6 +158,72 @@ export class StaffSettlementService {
       },
       batches,
       items,
+    };
+  }
+
+  /**
+   * Staff-triggered retry: clear settlement outbox backoff and POST pending
+   * batches to the merchant wallet immediately.
+   */
+  async retryWalletSettlementTransmission(
+    casinoGroupId: string,
+    staffUserId: string,
+  ) {
+    const pendingBefore = await this.prisma.walletOutbox.count({
+      where: {
+        casinoGroupId,
+        type: WALLET_OUTBOX_SETTLE,
+        status: WalletOutboxStatus.PENDING,
+      },
+    });
+
+    if (pendingBefore === 0) {
+      return {
+        casinoGroupId,
+        batchesSent: 0,
+        pendingBefore: 0,
+        pendingAfter: 0,
+      };
+    }
+
+    await this.prisma.walletOutbox.updateMany({
+      where: {
+        casinoGroupId,
+        type: WALLET_OUTBOX_SETTLE,
+        status: WalletOutboxStatus.PENDING,
+      },
+      data: { nextRetryAt: null },
+    });
+
+    const batchesSent =
+      await this.walletOutbox.flushSettlementBatchesForCasinoGroup(
+        casinoGroupId,
+      );
+
+    const pendingAfter = await this.prisma.walletOutbox.count({
+      where: {
+        casinoGroupId,
+        type: WALLET_OUTBOX_SETTLE,
+        status: WalletOutboxStatus.PENDING,
+      },
+    });
+
+    await this.audit.record({
+      actorType: 'staff',
+      actorId: staffUserId,
+      casinoGroupId,
+      action: 'settlement.wallet_retry',
+      entityType: 'CasinoGroup',
+      entityId: casinoGroupId,
+      after: { batchesSent, pendingBefore, pendingAfter },
+      reason: 'Staff manually triggered wallet settlement transmission',
+    });
+
+    return {
+      casinoGroupId,
+      batchesSent,
+      pendingBefore,
+      pendingAfter,
     };
   }
 

@@ -50,6 +50,20 @@ export class StaffSettlementController {
     return this.settlement.listWalletSettlementQueue(groupId);
   }
 
+  @Post('wallet-queue/retry')
+  @RequirePermission('settlement.run')
+  @ApiQuery({ name: 'casinoGroupId', required: false })
+  async retryWalletTransmission(
+    @CurrentStaff() staff: StaffContext,
+    @Query('casinoGroupId') casinoGroupId?: string,
+  ) {
+    const groupId = await this.scope.resolveCasinoGroupId(staff, casinoGroupId);
+    return this.settlement.retryWalletSettlementTransmission(
+      groupId,
+      staff.staffUserId,
+    );
+  }
+
   @Post('events/:eventId/run')
   @RequirePermission('settlement.run')
   @ApiQuery({ name: 'casinoGroupId', required: false })
